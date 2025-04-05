@@ -1,0 +1,22 @@
+2025-04-01 22:14:26,303 - root - INFO - Starting File Server
+2025-04-01 22:16:24,650 - root - INFO - Starting File Server
+2025-04-01 22:18:23,140 - root - INFO - Starting File Server
+2025-04-01 22:21:06,115 - root - INFO - Starting mcp file upload: test.wav
+2025-04-01 22:21:06,116 - root - INFO - MCP file upload successful: uploads/mcp/test.wav
+2025-04-01 22:31:02,824 - root - INFO - Starting mcp file upload: test.wav
+2025-04-01 22:31:02,825 - root - INFO - MCP file upload successful: uploads/mcp/test.wav
+2025-04-01 22:31:17,603 - root - INFO - Starting mcp file upload: test.wav
+2025-04-01 22:31:17,604 - root - INFO - MCP file upload successful: uploads/mcp/test.wav
+2025-04-01 22:44:54,374 - root - INFO - Starting mcp file upload: mcp_server_memory.exe
+2025-04-01 22:44:54,386 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.exe
+2025-04-01 22:45:14,401 - root - INFO - Starting mcp file upload: mcp_server_memory.exe
+2025-04-01 22:45:14,445 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.exe
+2025-04-01 22:46:55,239 - root - INFO - Starting mcp file upload: mcp_server_memory.exe
+2025-04-01 22:46:55,293 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.exe
+2025-04-01 22:47:20,593 - root - INFO - Starting mcp file upload: mcp_server_memory.exe
+2025-04-01 22:47:20,631 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.exe
+2025-04-01 22:53:36,993 - root - INFO - Starting mcp file upload: mcp_server_memory.exe
+2025-04-01 22:53:37,033 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.exe
+2025-04-01 23:39:10,276 - root - INFO - Starting mcp file upload: mcp_server_memory.exe
+2025-04-01 23:39:10,314 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.exe
+2025-04-01 23:58:09,191 - root - INFO - Starting File Server
