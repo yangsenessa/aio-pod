@@ -1,0 +1,2 @@
+#!/bin/bash
+echo "{\"jsonrpc\":\"2.0\",\"result\":\"test\",\"id\":1}"
