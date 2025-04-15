@@ -1,0 +1,22 @@
+2025-04-07 17:40:35,317 - root - INFO - Starting File Server
+2025-04-07 21:24:06,747 - root - INFO - Starting File Server
+2025-04-07 21:26:45,801 - root - INFO - Starting mcp file upload: mcp_server_memory.bin
+2025-04-07 21:26:45,801 - root - INFO - Target file path: uploads/mcp/temp_mcp_server_memory.bin
+2025-04-07 21:26:45,801 - root - INFO - Directory created/verified: uploads/mcp
+2025-04-07 21:26:45,830 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.bin
+2025-04-07 21:39:37,474 - root - INFO - Starting mcp file upload: mcp_server_memory.bin
+2025-04-07 21:39:37,474 - root - INFO - Target file path: uploads/mcp/temp_mcp_server_memory.bin
+2025-04-07 21:39:37,474 - root - INFO - Directory created/verified: uploads/mcp
+2025-04-07 21:39:37,505 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.bin
+2025-04-07 21:49:38,094 - root - INFO - Starting mcp file upload: mcp_server_memory.bin
+2025-04-07 21:49:38,095 - root - INFO - Target file path: uploads/mcp/temp_mcp_server_memory.bin
+2025-04-07 21:49:38,095 - root - INFO - Directory created/verified: uploads/mcp
+2025-04-07 21:49:38,127 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.bin
+2025-04-07 21:58:38,822 - root - INFO - Starting mcp file upload: mcp_server_memory.bin
+2025-04-07 21:58:38,822 - root - INFO - Target file path: uploads/mcp/temp_mcp_server_memory.bin
+2025-04-07 21:58:38,822 - root - INFO - Directory created/verified: uploads/mcp
+2025-04-07 21:58:38,853 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.bin
+2025-04-07 22:23:02,408 - root - INFO - Starting mcp file upload: mcp_server_memory.bin
+2025-04-07 22:23:02,410 - root - INFO - Target file path: uploads/mcp/temp_mcp_server_memory.bin
+2025-04-07 22:23:02,410 - root - INFO - Directory created/verified: uploads/mcp
+2025-04-07 22:23:02,441 - root - INFO - MCP file upload successful: uploads/mcp/mcp_server_memory.bin
