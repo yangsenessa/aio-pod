@@ -21,7 +21,9 @@ PYTHON_VERSION=$(python --version 2>&1 | awk '{print $2}')
 print_blue "Detected Python version: $PYTHON_VERSION"
 
 # Environment name - use existing univoice environment
-CONDA_ENV="univoice"
+CONDA_ENV="aiopod"
+
+LOG_LEVEL=debug
 
 # Check if conda is available
 if ! command -v conda &> /dev/null; then

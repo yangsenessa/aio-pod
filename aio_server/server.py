@@ -79,16 +79,43 @@ async def download_file(type: str = Query(..., description="File type (agent, mc
 async def upload_mcp(file: UploadFile = File(...)):
     try:
         logger.info(f"Starting mcp file upload: {file.filename}")
-        file_path = os.path.join("uploads/mcp", file.filename)
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        # 使用临时文件名
+        temp_filename = f"temp_{file.filename}"
+        file_path = os.path.join("uploads/mcp", temp_filename)
+        final_path = os.path.join("uploads/mcp", file.filename)
+        logger.info(f"Target file path: {file_path}")
         
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        logger.info(f"Directory created/verified: {os.path.dirname(file_path)}")
+        
+        # Check file permissions
+        if not os.access(os.path.dirname(file_path), os.W_OK):
+            logger.error(f"No write permission for directory: {os.path.dirname(file_path)}")
+            raise HTTPException(status_code=500, detail="No write permission for upload directory")
+        
+        # 写入临时文件
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        logger.info(f"MCP file upload successful: {file_path}")
-        return {"message": "File upload successful", "filename": file.filename, "path": file_path}
+        # 尝试重命名文件
+        try:
+            if os.path.exists(final_path):
+                os.remove(final_path)
+            os.rename(file_path, final_path)
+        except Exception as rename_error:
+            logger.error(f"Failed to rename file: {str(rename_error)}")
+            # 清理临时文件
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(status_code=500, detail="Failed to replace existing file")
+        
+        logger.info(f"MCP file upload successful: {final_path}")
+        return {"message": "File upload successful", "filename": file.filename, "path": final_path}
     except Exception as e:
         logger.error(f"MCP file upload failed: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/upload/agent")
