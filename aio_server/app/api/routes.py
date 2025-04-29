@@ -3,6 +3,8 @@ from typing import List, Optional, Dict, Any
 import os
 import subprocess
 import logging
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.models.schemas import (
     FileType, 
@@ -23,6 +25,31 @@ settings = get_settings()
 logger.setLevel(getattr(logging, settings.log_level.upper()))
 
 router = APIRouter()
+
+# Add CORS middleware to router
+@router.middleware("http")
+async def add_cors_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Origin, Accept"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Max-Age"] = "3600"
+    return response
+
+# Add OPTIONS handler for preflight requests
+@router.options("/upload/mcp")
+async def preflight_handler():
+    return JSONResponse(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Origin, Accept",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "3600"
+        }
+    )
 
 # Dependency: Get application configuration
 def get_config():

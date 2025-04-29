@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import shutil
 from pathlib import Path
 from app.models.schemas import FileType
+from app.api.routes import router as api_router
 
 # Configure logging
 def setup_logger():
@@ -44,16 +45,88 @@ def setup_logger():
 # Initialize logger
 logger = setup_logger()
 
-app = FastAPI()
+app = FastAPI(
+    title="AIO-MCP File Server",
+    description="File upload and download service for AIO-MCP",
+    version="1.0.0",
+    max_upload_size=1024 * 1024 * 100,  # 100MB max upload size
+    docs_url=None,  # Disable docs to reduce overhead
+    redoc_url=None,  # Disable redoc to reduce overhead
+    timeout=600  # 10 minutes timeout
+)
 
-# Configure CORS
+# Configure CORS with specific origins and headers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins, in production set specific domains
+    allow_origins=[
+        "http://localhost:4943",
+        "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943",
+        "http://127.0.0.1:4943",
+        "https://icp0.io",
+        "https://*.icp0.io"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Origin",
+        "Accept",
+        "Access-Control-Allow-Origin",
+        "Access-Control-Allow-Headers",
+        "Access-Control-Allow-Methods"
+    ],
+    expose_headers=["Content-Disposition"],
+    max_age=3600  # Cache preflight requests for 1 hour
 )
+
+# Add middleware to handle CORS headers for all responses
+@app.middleware("http")
+async def add_cors_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Origin, Accept"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
+
+# Include API routes
+app.include_router(api_router, prefix="/api/v1")
+
+# Add middleware to handle large file uploads
+@app.middleware("http")
+async def handle_large_uploads(request, call_next):
+    try:
+        # Check content length if available
+        content_length = request.headers.get('content-length')
+        if content_length and int(content_length) > 1024 * 1024 * 100:  # 100MB
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "File too large. Maximum size is 100MB."}
+            )
+        response = await call_next(request)
+        return response
+    except Exception as e:
+        logger.error(f"Error handling request: {str(e)}")
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "File too large. Maximum size is 100MB."}
+        )
+
+# Add OPTIONS handler for preflight requests
+@app.options("/upload/mcp")
+async def preflight_handler():
+    return JSONResponse(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Origin, Accept",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "3600"
+        }
+    )
 
 @app.get("/")
 async def download_file(type: str = Query(..., description="File type (agent, mcp, img, or video)"), filename: str = Query(..., description="File name")):
@@ -79,7 +152,10 @@ async def download_file(type: str = Query(..., description="File type (agent, mc
 async def upload_mcp(file: UploadFile = File(...)):
     try:
         logger.info(f"Starting mcp file upload: {file.filename}")
-        # 使用临时文件名
+        
+        # Check file size
+        file_size = 0
+        chunk_size = 8 * 1024 * 1024  # 8MB chunks for faster processing
         temp_filename = f"temp_{file.filename}"
         file_path = os.path.join("uploads/mcp", temp_filename)
         final_path = os.path.join("uploads/mcp", file.filename)
@@ -94,24 +170,32 @@ async def upload_mcp(file: UploadFile = File(...)):
             logger.error(f"No write permission for directory: {os.path.dirname(file_path)}")
             raise HTTPException(status_code=500, detail="No write permission for upload directory")
         
-        # 写入临时文件
+        # Write file in chunks with progress logging
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                buffer.write(chunk)
+                logger.info(f"Wrote chunk, total size: {file_size} bytes")
+                # Flush buffer to ensure data is written to disk
+                buffer.flush()
         
-        # 尝试重命名文件
+        # Try to rename file
         try:
             if os.path.exists(final_path):
                 os.remove(final_path)
             os.rename(file_path, final_path)
         except Exception as rename_error:
             logger.error(f"Failed to rename file: {str(rename_error)}")
-            # 清理临时文件
+            # Clean up temporary file
             if os.path.exists(file_path):
                 os.remove(file_path)
             raise HTTPException(status_code=500, detail="Failed to replace existing file")
         
-        logger.info(f"MCP file upload successful: {final_path}")
-        return {"message": "File upload successful", "filename": file.filename, "path": final_path}
+        logger.info(f"MCP file upload successful: {final_path}, size: {file_size} bytes")
+        return {"message": "File upload successful", "filename": file.filename, "path": final_path, "size": file_size}
     except Exception as e:
         logger.error(f"MCP file upload failed: {str(e)}")
         logger.error(f"Error type: {type(e).__name__}")
