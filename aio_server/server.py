@@ -10,37 +10,7 @@ import shutil
 from pathlib import Path
 from app.models.schemas import FileType
 from app.api.routes import router as api_router
-
-# Configure logging
-def setup_logger():
-    # Create log directory
-    log_dir = Path("log")
-    log_dir.mkdir(exist_ok=True)
-    
-    # Set log file name format
-    log_file = log_dir / "file_server.log"
-    
-    # Create log handler
-    handler = TimedRotatingFileHandler(
-        log_file,
-        when="midnight",  # Roll over at midnight
-        interval=1,
-        backupCount=30,  # Keep 30 days of logs
-        encoding="utf-8"
-    )
-    
-    # Set log format
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    handler.setFormatter(formatter)
-    
-    # Configure root logger
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-    
-    return logger
+from app.utils.logger import setup_logger
 
 # Initialize logger
 logger = setup_logger()
@@ -52,25 +22,43 @@ app = FastAPI(
 )
 
 # Configure CORS
-origins = [
-    "http://localhost:4943",
-    "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943",
-    "http://127.0.0.1:4943",
-    "https://icp0.io",
-    "https://*.icp0.io",
-    "*"  # Allow all origins for testing
-]
-
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # Allows all origins
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
     expose_headers=["*"],
     max_age=3600,
 )
+
+@app.middleware("http")
+async def cors_middleware(request, call_next):
+    response = await call_next(request)
+    
+    # Get the origin from the request headers
+    origin = request.headers.get("Origin")
+    
+    # Set CORS headers
+    response.headers["Access-Control-Allow-Origin"] = origin or "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Origin, Accept"
+    response.headers["Access-Control-Max-Age"] = "3600"
+    
+    # Handle preflight requests
+    if request.method == "OPTIONS":
+        if not response.headers.get("Access-Control-Allow-Origin"):
+            response.headers["Access-Control-Allow-Origin"] = origin or "*"
+    
+    return response
+
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    return JSONResponse(
+        content={"message": "OK"},
+        status_code=200,
+    )
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
