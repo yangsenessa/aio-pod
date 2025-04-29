@@ -48,48 +48,29 @@ logger = setup_logger()
 app = FastAPI(
     title="AIO-MCP File Server",
     description="File upload and download service for AIO-MCP",
-    version="1.0.0",
-    max_upload_size=1024 * 1024 * 100,  # 100MB max upload size
-    docs_url=None,  # Disable docs to reduce overhead
-    redoc_url=None,  # Disable redoc to reduce overhead
-    timeout=600  # 10 minutes timeout
+    version="1.0.0"
 )
 
-# Configure CORS with specific origins and headers
+# Configure CORS
+origins = [
+    "http://localhost:4943",
+    "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943",
+    "http://127.0.0.1:4943",
+    "https://icp0.io",
+    "https://*.icp0.io",
+    "*"  # Allow all origins for testing
+]
+
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:4943",
-        "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943",
-        "http://127.0.0.1:4943",
-        "https://icp0.io",
-        "https://*.icp0.io"
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=[
-        "Content-Type",
-        "Authorization",
-        "X-Requested-With",
-        "Origin",
-        "Accept",
-        "Access-Control-Allow-Origin",
-        "Access-Control-Allow-Headers",
-        "Access-Control-Allow-Methods"
-    ],
-    expose_headers=["Content-Disposition"],
-    max_age=3600  # Cache preflight requests for 1 hour
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
-
-# Add middleware to handle CORS headers for all responses
-@app.middleware("http")
-async def add_cors_headers(request, call_next):
-    response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Origin, Accept"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
@@ -113,20 +94,6 @@ async def handle_large_uploads(request, call_next):
             status_code=413,
             content={"detail": "File too large. Maximum size is 100MB."}
         )
-
-# Add OPTIONS handler for preflight requests
-@app.options("/upload/mcp")
-async def preflight_handler():
-    return JSONResponse(
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": "http://be2us-64aaa-aaaaa-qaabq-cai.localhost:4943",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Origin, Accept",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Max-Age": "3600"
-        }
-    )
 
 @app.get("/")
 async def download_file(type: str = Query(..., description="File type (agent, mcp, img, or video)"), filename: str = Query(..., description="File name")):

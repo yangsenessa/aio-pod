@@ -1,10 +1,42 @@
 import os
 import logging
-from fastapi import FastAPI
+import ssl
+import uvicorn
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.api.routes import router as api_router
 from app.utils.config import get_settings
+import time
+
+async def log_request_middleware(request: Request, call_next):
+    """Middleware to log request details"""
+    start_time = time.time()
+    
+    # Log request details
+    logging.info(f"""
+    -------- Incoming Request --------
+    Method: {request.method}
+    URL: {request.url}
+    Client IP: {request.client.host}
+    Headers: {dict(request.headers)}
+    """)
+    
+    # Process the request
+    response = await call_next(request)
+    
+    # Calculate processing time
+    process_time = time.time() - start_time
+    
+    # Log response details
+    logging.info(f"""
+    -------- Response Details --------
+    Status Code: {response.status_code}
+    Process Time: {process_time:.3f} seconds
+    -------------------------------------
+    """)
+    
+    return response
 
 def create_app() -> FastAPI:
     """Create FastAPI application instance"""
@@ -25,10 +57,13 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
     
-    # Configure CORS
+    # Add request logging middleware
+    app.middleware("http")(log_request_middleware)
+    
+    # Configure CORS - Update to include HTTPS origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.allowed_origins,
+        allow_origins=[origin.replace('http:', 'https:') for origin in settings.allowed_origins] + settings.allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -44,4 +79,31 @@ def create_app() -> FastAPI:
     # Mount static files directory (for direct access to uploaded files)
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
     
-    return app 
+    return app
+
+def run_server(host: str = "0.0.0.0", port: int = 8001, use_https: bool = True):
+    """Run the server with HTTPS support"""
+    app = create_app()
+    
+    if use_https:
+        # SSL configuration
+        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ssl_context.load_cert_chain(
+            certfile="./certs/server.crt",  # Path to your SSL certificate
+            keyfile="./certs/server.key"    # Path to your SSL private key
+        )
+        
+        # Run with HTTPS
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            ssl_certfile="./certs/server.crt",
+            ssl_keyfile="./certs/server.key"
+        )
+    else:
+        # Run without HTTPS
+        uvicorn.run(app, host=host, port=port)
+
+if __name__ == "__main__":
+    run_server() 
