@@ -4,13 +4,44 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 from pathlib import Path
 from app.models.schemas import FileType
 from app.api.routes import router as api_router
-from app.utils.logger import setup_logger
+from fastapi.routing import APIRoute
+
+# Configure logging
+def setup_logger():
+    # Create log directory
+    log_dir = Path("log")
+    log_dir.mkdir(exist_ok=True)
+    
+    # Set log file name format
+    log_file = log_dir / "file_server.log"
+    
+    # Create log handler
+    handler = TimedRotatingFileHandler(
+        log_file,
+        when="midnight",  # Roll over at midnight
+        interval=1,
+        backupCount=30,  # Keep 30 days of logs
+        encoding="utf-8"
+    )
+    
+    # Set log format
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    handler.setFormatter(formatter)
+    
+    # Configure root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    
+    return logger
 
 # Initialize logger
 logger = setup_logger()
@@ -24,64 +55,42 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
-    expose_headers=["*"],
-    max_age=3600,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.middleware("http")
-async def cors_middleware(request, call_next):
-    response = await call_next(request)
-    
-    # Get the origin from the request headers
-    origin = request.headers.get("Origin")
-    
-    # Set CORS headers
-    response.headers["Access-Control-Allow-Origin"] = origin or "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Origin, Accept"
-    response.headers["Access-Control-Max-Age"] = "3600"
-    
-    # Handle preflight requests
+async def add_cors_headers(request, call_next):
     if request.method == "OPTIONS":
-        if not response.headers.get("Access-Control-Allow-Origin"):
-            response.headers["Access-Control-Allow-Origin"] = origin or "*"
-    
+        response = Response()
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Max-Age"] = "3600"
+        return response
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
     return response
 
 @app.options("/{path:path}")
 async def options_handler(path: str):
-    return JSONResponse(
-        content={"message": "OK"},
-        status_code=200,
+    return Response(
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "3600"
+        }
     )
 
 # Include API routes
-app.include_router(api_router, prefix="/api/v1")
-
-# Add middleware to handle large file uploads
-@app.middleware("http")
-async def handle_large_uploads(request, call_next):
-    try:
-        # Check content length if available
-        content_length = request.headers.get('content-length')
-        if content_length and int(content_length) > 1024 * 1024 * 100:  # 100MB
-            return JSONResponse(
-                status_code=413,
-                content={"detail": "File too large. Maximum size is 100MB."}
-            )
-        response = await call_next(request)
-        return response
-    except Exception as e:
-        logger.error(f"Error handling request: {str(e)}")
-        return JSONResponse(
-            status_code=413,
-            content={"detail": "File too large. Maximum size is 100MB."}
-        )
+app.include_router(api_router)
 
 @app.get("/")
 async def download_file(type: str = Query(..., description="File type (agent, mcp, img, or video)"), filename: str = Query(..., description="File name")):
