@@ -4,7 +4,7 @@ import os
 import subprocess
 import logging
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.models.schemas import (
     FileType, 
@@ -25,6 +25,19 @@ settings = get_settings()
 logger.setLevel(getattr(logging, settings.log_level.upper()))
 
 router = APIRouter()
+
+# Add OPTIONS handler for all routes
+@router.options("/{path:path}")
+async def options_handler(path: str):
+    return Response(
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "3600"
+        }
+    )
 
 # Dependency: Get application configuration
 def get_config():
