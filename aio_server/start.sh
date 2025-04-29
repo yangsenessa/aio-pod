@@ -19,6 +19,9 @@ print_red() {
 # Check Python version
 PYTHON_VERSION=$(python --version 2>&1 | awk '{print $2}')
 print_blue "Detected Python version: $PYTHON_VERSION"
+HTTPS_ENABLED=true
+SSL_CERT_FILE=./certs/server.crt
+SSL_KEY_FILE=./certs/server.key
 
 # Environment name - use existing univoice environment
 CONDA_ENV="aiopod"
