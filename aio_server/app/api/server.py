@@ -2,7 +2,7 @@ import os
 import logging
 import ssl
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.api.routes import router as api_router
@@ -52,7 +52,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="AIO-MCP Execution Service",
         description="Service for uploading, storing and executing AIO Agent and MCP executable files",
-        version=settings.api_version,
+        version="v1",
         docs_url="/docs",
         redoc_url="/redoc",
     )
@@ -60,28 +60,49 @@ def create_app() -> FastAPI:
     # Add request logging middleware
     app.middleware("http")(log_request_middleware)
     
-    # Configure CORS - Update to include HTTPS origins
+    # Configure CORS
+    origins = ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[origin.replace('http:', 'https:') for origin in settings.allowed_origins] + settings.allowed_origins,
+        allow_origins=origins,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
+        expose_headers=["*"],
+        max_age=3600,
     )
+    
+    # Add CORS middleware for preflight requests
+    @app.middleware("http")
+    async def cors_middleware(request: Request, call_next):
+        if request.method == "OPTIONS":
+            response = Response()
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Max-Age"] = "3600"
+            return response
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
     
     # Create upload directories (if they don't exist)
     os.makedirs(settings.agent_exec_dir, exist_ok=True)
     os.makedirs(settings.mcp_exec_dir, exist_ok=True)
     
-    # Register API routes
-    app.include_router(api_router, prefix=f"/api/{settings.api_version}")
+    # Register API routes with new prefix
+    app.include_router(api_router, prefix="/aip/v1")
     
     # Mount static files directory (for direct access to uploaded files)
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
     
     return app
 
-def run_server(host: str = "0.0.0.0", port: int = 8001, use_https: bool = True):
+def run_server(host: str = "0.0.0.0", port: int = 8000, use_https: bool = False):
     """Run the server with HTTPS support"""
     app = create_app()
     

@@ -32,7 +32,7 @@ async def options_handler(path: str):
     return Response(
         headers={
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
             "Access-Control-Allow-Headers": "*",
             "Access-Control-Allow-Credentials": "true",
             "Access-Control-Max-Age": "3600"
@@ -176,4 +176,8 @@ async def execute_mcp(filename: str, args: Optional[str] = None):
         return {"output": result.stdout}
     except Exception as e:
         logger.error(f"MCP execution error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/health")
+async def health_check():
+    return {"status": "healthy"} 
