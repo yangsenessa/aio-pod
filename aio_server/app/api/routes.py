@@ -43,9 +43,6 @@ async def options_handler(path: str):
 def get_config():
     return get_settings()
 
-# File upload route
-
-
 # JSON-RPC execution route
 @router.post("/rpc/{file_type}/{filename}")
 async def execute_rpc(
@@ -116,37 +113,6 @@ async def execute_rpc(
     
     return result
 
-@router.post("/execute/agent")
-async def execute_agent(filename: str, args: Optional[str] = None):
-    try:
-        logger.info(f"Starting agent file execution: {filename}")
-        file_path = os.path.join("uploads/agent", filename)
-        
-        if not os.path.exists(file_path):
-            logger.error(f"Agent file does not exist: {file_path}")
-            raise HTTPException(status_code=404, detail="File does not exist")
-        
-        if not os.access(file_path, os.X_OK):
-            logger.error(f"Agent file does not have execute permission: {file_path}")
-            raise HTTPException(status_code=403, detail="File does not have execute permission")
-        
-        cmd = [file_path]
-        if args:
-            cmd.extend(args.split())
-        
-        logger.info(f"Executing command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            logger.error(f"Agent execution failed: {result.stderr}")
-            raise HTTPException(status_code=500, detail=result.stderr)
-        
-        logger.info(f"Agent execution successful: {result.stdout}")
-        return {"output": result.stdout}
-    except Exception as e:
-        logger.error(f"Agent execution error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @router.post("/execute/mcp")
 async def execute_mcp(filename: str, args: Optional[str] = None):
     try:
@@ -179,5 +145,5 @@ async def execute_mcp(filename: str, args: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health")
-async def health_check():
+async def api_health_check():
     return {"status": "healthy"} 
