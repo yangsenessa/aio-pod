@@ -46,9 +46,23 @@ def create_app() -> FastAPI:
     
     # Configure logging
     logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        level=logging.DEBUG,  # Set root logger to DEBUG
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=[
+            logging.StreamHandler(),  # Console handler
+            logging.FileHandler('app.log')  # File handler
+        ]
     )
+    
+    # Set all loggers to DEBUG level
+    for logger_name in logging.root.manager.loggerDict:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.DEBUG)
+    
+    logging.debug("Debug logging is enabled in server")
+    logging.info("Info logging is enabled in server")
+    logging.error("Error logging is enabled in server")
     
     # Create FastAPI app
     app = FastAPI(
@@ -62,57 +76,46 @@ def create_app() -> FastAPI:
     # Add request logging middleware
     app.middleware("http")(log_request_middleware)
     
-    # Configure CORS for both HTTP and HTTPS
-    origins = [
-        "http://localhost",
-        "https://localhost",
-        "http://localhost:8000",
-        "https://localhost:8000",
-        "http://localhost:8001",
-        "https://localhost:8001",
-        "http://127.0.0.1",
-        "https://127.0.0.1",
-        "http://127.0.0.1:8000",
-        "https://127.0.0.1:8000",
-        "http://127.0.0.1:8001",
-        "https://127.0.0.1:8001",
-        "*"  # Allow all origins - remove in production
-    ]
-    
+    # Configure CORS
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins,
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
-        expose_headers=["*"],
+        allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
+        expose_headers=["Content-Type", "Authorization"],
         max_age=3600,
     )
     
     @app.middleware("http")
     async def cors_middleware(request: Request, call_next):
         if request.method == "OPTIONS":
+            origin = request.headers.get("origin", "*")
             response = Response(status_code=200)
-            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, Origin, X-Requested-With"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Max-Age"] = "3600"
             return response
             
         try:
             response = await call_next(request)
-            response.headers["Access-Control-Allow-Origin"] = "*"
+            origin = request.headers.get("origin", "*")
+            response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, Origin, X-Requested-With"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
             return response
         except Exception as e:
             logging.error(f"Request failed: {str(e)}")
             return Response(
                 status_code=500,
                 headers={
-                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
                     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "*"
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, X-Requested-With",
+                    "Access-Control-Allow-Credentials": "true"
                 }
             )
     
@@ -156,8 +159,12 @@ def create_app() -> FastAPI:
     os.makedirs(settings.agent_exec_dir, exist_ok=True)
     os.makedirs(settings.mcp_exec_dir, exist_ok=True)
     
-    # Register API routes directly without prefix
-    app.include_router(api_router)
+    # Register API routes with version prefix
+    app.include_router(api_router, prefix="/api/v1")
+    
+    # Log all registered routes for debugging
+    for route in app.routes:
+        logging.info(f"Registered route: {route.path} [{','.join(route.methods)}]")
     
     # Mount static files directory (for direct access to uploaded files)
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
