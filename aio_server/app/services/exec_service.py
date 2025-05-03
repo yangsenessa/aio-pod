@@ -278,10 +278,10 @@ class ExecutionService:
             stdin_data=stdin_data,
             timeout=timeout
         )
-        logger.info(f"执行结果 - 成功状态: {result.success}, 退出码: {result.exit_code}")
-        logger.debug(f"标准输出: {result.stdout}")
-        logger.debug(f"标准错误: {result.stderr}")
-        logger.debug(f"执行信息: {result.message}")
+        logger.info(f"Execution result - Success status: {result.success}, Exit code: {result.exit_code}")
+        logger.debug(f"Standard output: {result.stdout}")
+        logger.debug(f"Standard error: {result.stderr}")
+        logger.debug(f"Execution info: {result.message}")
         # Parse response
         if not result.success:
             logger.error(f"JSON-RPC execution failed: {result.message}")
