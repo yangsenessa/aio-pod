@@ -259,7 +259,7 @@ class ExecutionService:
         # Serialize request to JSON string
         try:
             stdin_data = json.dumps(request)
-            logger.debug(f"JSON-RPC request: {stdin_data}")
+            logger.info(f"JSON-RPC request: {stdin_data}")
         except Exception as e:
             logger.error(f"Failed to serialize JSON-RPC request: {str(e)}")
             return {
@@ -279,9 +279,9 @@ class ExecutionService:
             timeout=timeout
         )
         logger.info(f"Execution result - Success status: {result.success}, Exit code: {result.exit_code}")
-        logger.debug(f"Standard output: {result.stdout}")
-        logger.debug(f"Standard error: {result.stderr}")
-        logger.debug(f"Execution info: {result.message}")
+        logger.info(f"Standard output: {result.stdout}")
+        logger.info(f"Standard error: {result.stderr}")
+        logger.info(f"Execution info: {result.message}")
         # Parse response
         if not result.success:
             logger.error(f"JSON-RPC execution failed: {result.message}")
