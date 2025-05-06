@@ -28,145 +28,207 @@ class ExecutionService:
         environment: Optional[Dict[str, str]] = None
     ) -> ExecutionResponse:
         """
-        Execute specified executable file
-        
-        Args:
-            filepath: Executable file path
-            arguments: Command line arguments
-            stdin_data: Standard input data
-            timeout: Execution timeout (seconds)
-            environment: Environment variables
-            
-        Returns:
-            Execution result response
+        Execute file with optional arguments and standard input
         """
-        logger.setLevel(getattr(logging, settings.log_level.upper()))
-        logger.info(f"Starting file execution - filepath: {filepath}, arguments: {arguments}, timeout: {timeout}")
+        logger.info(f"Executing file: {filepath}")
+        logger.info(f"Arguments: {arguments}")
+        logger.info(f"Timeout: {timeout}s")
         
-        if not FileService.file_exists(filepath):
-            logger.error(f"File does not exist: {filepath}")
-            return ExecutionResponse(
-                success=False,
-                message=f"File does not exist: {filepath}"
-            )
+        # Ensure file is executable
+        if not os.access(filepath, os.X_OK):
+            try:
+                logger.info(f"Setting executable permissions for file: {filepath}")
+                os.chmod(filepath, 0o755)
+            except Exception as e:
+                logger.error(f"Failed to set executable permissions: {str(e)}")
+                return ExecutionResponse(
+                    success=False,
+                    message=f"Unable to set executable permissions: {str(e)}"
+                )
         
-        # Create temporary directory and copy executable
-        temp_dir = tempfile.mkdtemp()
         try:
-            # Copy file to temporary directory
-            temp_filepath = os.path.join(temp_dir, os.path.basename(filepath))
-            shutil.copy2(filepath, temp_filepath)
+            start_time = time.time()
             
-            # Ensure file is executable
-            if not os.access(temp_filepath, os.X_OK):
-                try:
-                    logger.info(f"Setting executable permissions for file: {temp_filepath}")
-                    os.chmod(temp_filepath, 0o755)
-                except Exception as e:
-                    logger.error(f"Failed to set executable permissions: {str(e)}")
-                    return ExecutionResponse(
-                        success=False,
-                        message=f"Unable to set executable permissions: {str(e)}"
-                    )
-            
-            # Prepare command
-            cmd = [temp_filepath]
-            if arguments:
-                cmd.extend(arguments)
-            logger.info(f"Prepared command: {' '.join(cmd)}")
-            
-            # Prepare environment variables
+            # Prepare environment
             env = os.environ.copy()
             if environment:
                 env.update(environment)
                 logger.info(f"Added custom environment variables: {environment}")
             
-            try:
-                start_time = time.time()
-                logger.info("Creating subprocess...")
+            # Use shell piping approach (like the test script)
+            if stdin_data:
+                logger.info(f"Using shell piping approach with stdin data (length: {len(stdin_data)})")
+                logger.info(f"First 100 chars of stdin: {stdin_data[:100]}...")
                 
-                # Create subprocess
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdin=asyncio.subprocess.PIPE if stdin_data else None,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env
-                )
-                
-                # Send standard input data (if any)
-                if stdin_data:
-                    logger.info("Sending stdin data to process: %s", stdin_data)
-                    stdin_bytes = stdin_data.encode('utf-8') if isinstance(stdin_data, str) else stdin_data
-                else:
-                    stdin_bytes = None
+                # For large inputs, use a temporary file instead of echo to avoid argument list too long errors
+                if len(stdin_data) > 10000:  # If input is larger than ~10KB
+                    logger.info(f"Input data too large for echo command ({len(stdin_data)} bytes), using temporary file")
                     
-                # Wait for process to complete, maximum wait time is timeout seconds
-                try:
-                    logger.info(f"Waiting for process completion (timeout: {timeout}s)")
+                    # Create a temporary file
+                    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as temp_file:
+                        temp_filepath = temp_file.name
+                        # Write JSON data to file
+                        temp_file.write(stdin_data)
+                        temp_file.flush()
+                        logger.info(f"Created temporary file: {temp_filepath}")
                     
-                    # Create a task for process communication
-                    communicate_task = asyncio.create_task(process.communicate(input=stdin_bytes))
-                    
-                    # Wait for either completion or timeout
                     try:
-                        stdout, stderr = await asyncio.wait_for(communicate_task, timeout=timeout)
+                        # Use cat to pipe file content to the executable
+                        shell_cmd = f"cat {temp_filepath} | {filepath}"
+                        if arguments:
+                            shell_cmd += f" {' '.join(arguments)}"
+                        
+                        logger.info(f"Executing shell command with pipe from file: {shell_cmd}")
+                        
+                        # Execute the shell command
+                        process = await asyncio.create_subprocess_shell(
+                            shell_cmd,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                            env=env,
+                            shell=True
+                        )
+                        
+                        # Wait for process completion with timeout
+                        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+                        
+                        # Process the response
+                        execution_time = time.time() - start_time
+                        logger.info(f"Process completed in {execution_time:.2f}s with exit code: {process.returncode}")
+                        
+                        # Log output sizes
+                        stdout_size = len(stdout) if stdout else 0
+                        stderr_size = len(stderr) if stderr else 0
+                        logger.info(f"Output sizes - stdout: {stdout_size} bytes, stderr: {stderr_size} bytes")
+                        
+                        # Log preview of outputs (if available)
+                        if stdout:
+                            stdout_preview = stdout[:100].decode('utf-8', errors='replace')
+                            logger.debug(f"Stdout preview: {stdout_preview}...")
+                        if stderr:
+                            stderr_preview = stderr[:100].decode('utf-8', errors='replace')
+                            logger.debug(f"Stderr preview: {stderr_preview}...")
+                        
+                        return ExecutionResponse(
+                            success=process.returncode == 0,
+                            stdout=stdout.decode('utf-8', errors='replace') if stdout else None,
+                            stderr=stderr.decode('utf-8', errors='replace') if stderr else None,
+                            exit_code=process.returncode,
+                            execution_time=execution_time,
+                            message="Execution successful" if process.returncode == 0 else f"Execution failed, exit code: {process.returncode}"
+                        )
+                    
+                    finally:
+                        # Clean up the temporary file
+                        logger.info(f"Temporary file: {temp_filepath}")
+                        # try:
+                        #     os.unlink(temp_filepath)
+                        #     logger.info(f"Removed temporary file: {temp_filepath}")
+                        # except Exception as e:
+                        #     logger.warning(f"Failed to remove temporary file: {str(e)}")
+                
+                else:
+                    # For smaller inputs, use the echo approach
+                    # Properly escape the JSON for shell
+                    escaped_stdin = stdin_data.replace("'", "'\\''")
+                    
+                    # Build the shell command
+                    shell_cmd = f"echo '{escaped_stdin}' | {filepath}"
+                    if arguments:
+                        shell_cmd += f" {' '.join(arguments)}"
+                    
+                    logger.info(f"Executing shell command with piping (showing truncated stdin)")
+                    
+                    # Execute the shell command
+                    process = await asyncio.create_subprocess_shell(
+                        shell_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env,
+                        shell=True
+                    )
+                    
+                    try:
+                        # Wait for process completion with timeout
+                        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+                        
+                        # Process the response
+                        execution_time = time.time() - start_time
+                        logger.info(f"Process completed in {execution_time:.2f}s with exit code: {process.returncode}")
+                        
+                        # Log output sizes
+                        stdout_size = len(stdout) if stdout else 0
+                        stderr_size = len(stderr) if stderr else 0
+                        logger.info(f"Output sizes - stdout: {stdout_size} bytes, stderr: {stderr_size} bytes")
+                        
+                        # Log preview of outputs (if available)
+                        if stdout:
+                            stdout_preview = stdout[:100].decode('utf-8', errors='replace')
+                            logger.info(f"Stdout preview: {stdout_preview}...")
+                        if stderr:
+                            stderr_preview = stderr[:100].decode('utf-8', errors='replace')
+                            logger.info(f"Stderr preview: {stderr_preview}...")
+                        
+                        # Return execution result
+                        return ExecutionResponse(
+                            success=process.returncode == 0,
+                            stdout=stdout.decode('utf-8', errors='replace') if stdout else None,
+                            stderr=stderr.decode('utf-8', errors='replace') if stderr else None,
+                            exit_code=process.returncode,
+                            execution_time=execution_time,
+                            message="Execution successful" if process.returncode == 0 else f"Execution failed, exit code: {process.returncode}"
+                        )
+                        
                     except asyncio.TimeoutError:
-                        # Check if there was any stderr output before timeout
-                        if process.stderr:
-                            try:
-                                stderr_data = await asyncio.wait_for(process.stderr.read(), timeout=0.1)
-                                if stderr_data:
-                                    logger.error(f"Process reported error before timeout: {stderr_data.decode('utf-8', errors='replace')}")
-                                    return ExecutionResponse(
-                                        success=False,
-                                        stderr=stderr_data.decode('utf-8', errors='replace'),
-                                        exit_code=None,
-                                        execution_time=timeout,
-                                        message="Service start failed with error"
-                                    )
-                            except asyncio.TimeoutError:
-                                pass
+                        logger.error(f"Process execution timed out after {timeout}s")
                         
-                        # Check if this is a start method call
-                        try:
-                            if stdin_data:
-                                request_data = json.loads(stdin_data)
-                                if request_data.get("method") == "start":
-                                    logger.info("Service start timed out with no errors, considering it successful")
-                                    return ExecutionResponse(
-                                        success=True,
-                                        exit_code=None,
-                                        execution_time=timeout,
-                                        message="Service start successfully"
-                                    )
-                        except (json.JSONDecodeError, AttributeError) as e:
-                            logger.warning(f"Failed to parse stdin data for method check: {str(e)}")
-                        
-                        # If timeout, terminate process
+                        # Try to kill the process
                         try:
                             process.kill()
                             logger.info("Process terminated due to timeout")
                         except ProcessLookupError:
                             logger.warning("Process already terminated")
-                            pass
-                            
+                        
+                        # Special handling for start method
+                        try:
+                            request_data = json.loads(stdin_data)
+                            if request_data.get("method") == "start":
+                                logger.info("Service start timed out, considering it successful for start method")
+                                return ExecutionResponse(
+                                    success=True,
+                                    exit_code=None,
+                                    execution_time=timeout,
+                                    message="Service start successfully"
+                                )
+                        except (json.JSONDecodeError, AttributeError) as e:
+                            logger.warning(f"Failed to parse stdin data for method check: {str(e)}")
+                        
                         return ExecutionResponse(
                             success=False,
                             exit_code=None,
                             execution_time=timeout,
                             message=f"Execution timeout (>{timeout} seconds)"
                         )
-                    
+            else:
+                # No stdin data - just run the command directly
+                logger.info("No stdin data provided, executing command directly")
+                
+                # Prepare command
+                cmd = [filepath]
+                if arguments:
+                    cmd.extend(arguments)
+                
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env
+                )
+                
+                try:
+                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
                     execution_time = time.time() - start_time
-                    logger.info(f"Process completed in {execution_time:.2f}s with exit code: {process.returncode}")
                     
-                    if stdout:
-                        logger.debug(f"Process stdout: {stdout.decode('utf-8', errors='replace')}")
-                    if stderr:
-                        logger.debug(f"Process stderr: {stderr.decode('utf-8', errors='replace')}")
-                    
-                    # Return execution result
                     return ExecutionResponse(
                         success=process.returncode == 0,
                         stdout=stdout.decode('utf-8', errors='replace') if stdout else None,
@@ -175,33 +237,12 @@ class ExecutionService:
                         execution_time=execution_time,
                         message="Execution successful" if process.returncode == 0 else f"Execution failed, exit code: {process.returncode}"
                     )
-                    
                 except asyncio.TimeoutError:
-                    logger.error(f"Process execution timed out after {timeout}s")
-                    
-                    # Check if this is a start method call
-                    try:
-                        if stdin_data:
-                            request_data = json.loads(stdin_data)
-                            if request_data.get("method") == "start":
-                                # For start method, we consider it successful if no errors were reported
-                                logger.info("Service start timed out, considering it successful for start method")
-                                return ExecutionResponse(
-                                    success=True,
-                                    exit_code=None,
-                                    execution_time=timeout,
-                                    message="Service start successfully"
-                                )
-                    except (json.JSONDecodeError, AttributeError) as e:
-                        logger.warning(f"Failed to parse stdin data for method check: {str(e)}")
-                    
-                    # If timeout, terminate process
                     try:
                         process.kill()
                         logger.info("Process terminated due to timeout")
                     except ProcessLookupError:
                         logger.warning("Process already terminated")
-                        pass
                         
                     return ExecutionResponse(
                         success=False,
@@ -209,20 +250,13 @@ class ExecutionService:
                         execution_time=timeout,
                         message=f"Execution timeout (>{timeout} seconds)"
                     )
-                    
-            except Exception as e:
-                logger.error(f"Process execution failed: {str(e)}")
-                return ExecutionResponse(
-                    success=False,
-                    message=f"Execution failed: {str(e)}"
-                )
-        finally:
-            # Clean up temporary directory
-            try:
-                shutil.rmtree(temp_dir)
-                logger.info(f"Cleaned up temporary directory: {temp_dir}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up temporary directory: {str(e)}")
+            
+        except Exception as e:
+            logger.error(f"Process execution failed: {str(e)}")
+            return ExecutionResponse(
+                success=False,
+                message=f"Execution failed: {str(e)}"
+            )
     
     @staticmethod
     async def execute_json_rpc(
@@ -246,7 +280,12 @@ class ExecutionService:
             JSON-RPC response
         """
         logger.info(f"Starting JSON-RPC execution - filepath: {filepath}, method: {method}, id: {id}, timeout: {timeout}")
-        logger.debug(f"RPC parameters: {params}")
+        
+        # For large base64 data, increase the timeout if needed
+        if params and "base64_data" in params and len(params["base64_data"]) > 1000000:  # > 1MB
+            original_timeout = timeout
+            timeout = max(timeout, 60)  # Ensure at least 60 seconds for large files
+            logger.info(f"Large base64 data detected ({len(params['base64_data'])} bytes), increased timeout from {original_timeout}s to {timeout}s")
         
         # Construct JSON-RPC request
         request = {
@@ -256,10 +295,24 @@ class ExecutionService:
             "id": id if id is not None else 1
         }
         
-        # Serialize request to JSON string
+        # Serialize request to JSON string - match the shell script exactly
         try:
-            stdin_data = json.dumps(request)
-            logger.info(f"JSON-RPC request: {stdin_data}")
+            # Use compact JSON formatting without whitespace and ensure_ascii=False to handle non-ASCII characters
+            stdin_data = json.dumps(request, ensure_ascii=False, separators=(',', ':'))
+            
+            logger.info(f"JSON-RPC request size: {len(stdin_data)} bytes")
+            # If we have base64 data, log the size
+            if params and "base64_data" in params:
+                base64_size = len(params["base64_data"])
+                logger.info(f"Base64 data size: {base64_size} bytes")
+                
+            # Validate that we can parse the JSON back - sanity check
+            try:
+                json.loads(stdin_data)
+                logger.info("JSON validation successful")
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON validation failed: {str(e)}")
+                
         except Exception as e:
             logger.error(f"Failed to serialize JSON-RPC request: {str(e)}")
             return {
@@ -271,17 +324,28 @@ class ExecutionService:
                 "id": id
             }
         
-        # Execute executable file
-        logger.info("Executing file with JSON-RPC request")
+        # Execute executable file with shell piping
+        logger.info(f"Executing file using shell piping for JSON-RPC request: {method}")
         result = await ExecutionService.execute_file(
             filepath=filepath,
             stdin_data=stdin_data,
             timeout=timeout
         )
         logger.info(f"Execution result - Success status: {result.success}, Exit code: {result.exit_code}")
-        logger.info(f"Standard output: {result.stdout}")
-        logger.info(f"Standard error: {result.stderr}")
-        logger.info(f"Execution info: {result.message}")
+        
+        # For debugging - log response content
+        if result.stdout:
+            logger.info(f"Response size: {len(result.stdout)} bytes")
+            # Try to log a small preview of the response
+            preview_size = min(100, len(result.stdout))
+            logger.info(f"Response preview: {result.stdout[:preview_size]}...")
+        else:
+            logger.warning("No stdout response received")
+        
+        # If there's stderr, log it
+        if result.stderr:
+            logger.error(f"Stderr output: {result.stderr}")
+        
         # Parse response
         if not result.success:
             logger.error(f"JSON-RPC execution failed: {result.message}")

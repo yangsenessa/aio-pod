@@ -11,11 +11,12 @@ import time
 import sys
 import argparse
 
-async def log_request_middleware(request: Request, call_next):
-    """Middleware to log request details"""
+# Define a single middleware for both request logging and CORS
+async def combined_middleware(request: Request, call_next):
+    """Middleware to handle both logging and CORS in a single pass"""
     start_time = time.time()
     
-    # Log request details
+    # Log request details - only once
     logging.info(f"""
     -------- Incoming Request --------
     Method: {request.method}
@@ -24,29 +25,71 @@ async def log_request_middleware(request: Request, call_next):
     Headers: {dict(request.headers)}
     """)
     
-    # Process the request
-    response = await call_next(request)
+    # Handle OPTIONS preflight requests
+    if request.method == "OPTIONS":
+        origin = request.headers.get("origin", "*")
+        response = Response(status_code=200)
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, Origin, X-Requested-With"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Max-Age"] = "3600"
+        
+        # Log response - reduced logging for OPTIONS
+        process_time = time.time() - start_time
+        logging.info(f"""
+        -------- Response Details (OPTIONS) --------
+        Status Code: 200
+        Process Time: {process_time:.3f} seconds
+        -------------------------------------
+        """)
+        
+        return response
     
-    # Calculate processing time
-    process_time = time.time() - start_time
-    
-    # Log response details
-    logging.info(f"""
-    -------- Response Details --------
-    Status Code: {response.status_code}
-    Process Time: {process_time:.3f} seconds
-    -------------------------------------
-    """)
-    
-    return response
+    try:
+        # Process the request
+        response = await call_next(request)
+        
+        # Add CORS headers
+        origin = request.headers.get("origin", "*")
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, Origin, X-Requested-With"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+        # Log response
+        process_time = time.time() - start_time
+        logging.info(f"""
+        -------- Response Details --------
+        Status Code: {response.status_code}
+        Process Time: {process_time:.3f} seconds
+        -------------------------------------
+        """)
+        
+        return response
+    except Exception as e:
+        logging.error(f"Request failed: {str(e)}")
+        return Response(
+            status_code=500,
+            headers={
+                "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, X-Requested-With",
+                "Access-Control-Allow-Credentials": "true"
+            }
+        )
 
 def create_app() -> FastAPI:
     """Create FastAPI application instance"""
     settings = get_settings()
     
-    # Configure logging
+    # Configure logging - first reset any existing handlers to avoid duplication
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
     logging.basicConfig(
-        level=logging.DEBUG,  # Set root logger to DEBUG
+        level=logging.INFO,  # Set root logger to INFO instead of DEBUG to reduce verbosity
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
         handlers=[
@@ -55,14 +98,13 @@ def create_app() -> FastAPI:
         ]
     )
     
-    # Set all loggers to DEBUG level
-    for logger_name in logging.root.manager.loggerDict:
-        logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.DEBUG)
+    # Set specific loggers to different levels as needed
+    # Don't set ALL loggers to DEBUG as that's too verbose
+    app_logger = logging.getLogger('app')
+    app_logger.setLevel(logging.DEBUG)
     
     logging.debug("Debug logging is enabled in server")
     logging.info("Info logging is enabled in server")
-    logging.error("Error logging is enabled in server")
     
     # Create FastAPI app
     app = FastAPI(
@@ -73,51 +115,52 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
     
-    # Add request logging middleware
-    app.middleware("http")(log_request_middleware)
+    # Add single combined middleware for both logging and CORS
+    app.middleware("http")(combined_middleware)
     
-    # Configure CORS
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
-        expose_headers=["Content-Type", "Authorization"],
-        max_age=3600,
-    )
+    # Configure CORS - use middleware instead of add_middleware to avoid duplicate processing
+    # app.add_middleware(
+    #     CORSMiddleware,
+    #     allow_origins=["*"],
+    #     allow_credentials=True,
+    #     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    #     allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
+    #     expose_headers=["Content-Type", "Authorization"],
+    #     max_age=3600,
+    # )
     
-    @app.middleware("http")
-    async def cors_middleware(request: Request, call_next):
-        if request.method == "OPTIONS":
-            origin = request.headers.get("origin", "*")
-            response = Response(status_code=200)
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, Origin, X-Requested-With"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Max-Age"] = "3600"
-            return response
-            
-        try:
-            response = await call_next(request)
-            origin = request.headers.get("origin", "*")
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, Origin, X-Requested-With"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            return response
-        except Exception as e:
-            logging.error(f"Request failed: {str(e)}")
-            return Response(
-                status_code=500,
-                headers={
-                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, X-Requested-With",
-                    "Access-Control-Allow-Credentials": "true"
-                }
-            )
+    # REMOVE THIS DUPLICATE MIDDLEWARE
+    # @app.middleware("http")
+    # async def cors_middleware(request: Request, call_next):
+    #     if request.method == "OPTIONS":
+    #         origin = request.headers.get("origin", "*")
+    #         response = Response(status_code=200)
+    #         response.headers["Access-Control-Allow-Origin"] = origin
+    #         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    #         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, Origin, X-Requested-With"
+    #         response.headers["Access-Control-Allow-Credentials"] = "true"
+    #         response.headers["Access-Control-Max-Age"] = "3600"
+    #         return response
+    #         
+    #     try:
+    #         response = await call_next(request)
+    #         origin = request.headers.get("origin", "*")
+    #         response.headers["Access-Control-Allow-Origin"] = origin
+    #         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    #         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, Origin, X-Requested-With"
+    #         response.headers["Access-Control-Allow-Credentials"] = "true"
+    #         return response
+    #     except Exception as e:
+    #         logging.error(f"Request failed: {str(e)}")
+    #         return Response(
+    #             status_code=500,
+    #             headers={
+    #                 "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+    #                 "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    #                 "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, X-Requested-With",
+    #                 "Access-Control-Allow-Credentials": "true"
+    #             }
+    #         )
     
     # Add health check endpoint at root and /health
     @app.get("/")
