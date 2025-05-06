@@ -23,28 +23,6 @@ from app.utils.config import get_settings, Settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# Configure console handler with DEBUG level to catch all levels
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)  # Set to DEBUG to catch all levels
-console_formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-console_handler.setFormatter(console_formatter)
-
-# Remove any existing handlers to avoid duplication
-for handler in logger.handlers[:]:
-    logger.removeHandler(handler)
-
-# Add console handler to logger and set to DEBUG
-logger.addHandler(console_handler)
-logger.setLevel(logging.DEBUG)  # Set to DEBUG to allow all levels
-
-# Add some debug logging to test
-logger.debug("Debug logging is enabled")
-logger.info("Info logging is enabled")
-logger.error("Error logging is enabled")
-
 router = APIRouter()  # Remove prefix, will be added by server.py
 
 # Add OPTIONS handler for all routes
@@ -94,7 +72,7 @@ async def execute_rpc(
     - **timeout**: Execution timeout (seconds)
     """
     try:
-        logger.info(f"Received RPC request - type: {file_type}, filename: {filename}, request: {rpc_request}")
+        logger.info(f"Received RPC request - type: {file_type}, filename: {filename}")
         # Get file path and check for .bin suffix if it's an MCP file
         if file_type == FileType.MCP:
             logger.info(f"MCP file detected - type: {file_type}, filename: {filename}")
@@ -189,7 +167,7 @@ async def execute_rpc(
             )
 
         # Execute RPC request
-        logger.info(f"Executing RPC request - filepath: {file_path}, method: {method}, params: {params}, id: {id}, timeout: {timeout}")
+        logger.info(f"Executing RPC request - filepath: {file_path}, method: {method}, id: {id}, timeout: {timeout}")
         result = await ExecutionService.execute_json_rpc(
             filepath=file_path,
             method=method,
