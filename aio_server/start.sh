@@ -108,7 +108,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Set up trap for cleanup
-trap cleanup EXIT INT TERM
+trap cleanup INT TERM
 
 # Check Python version
 PYTHON_VERSION=$(python --version 2>&1 | awk '{print $2}')
@@ -185,21 +185,21 @@ export PYTHONPATH=$WORKSPACE_ROOT:$PYTHONPATH
 print_blue "Starting file server on port $FILE_SERVER_PORT..."
 cd $WORKSPACE_ROOT/aio_server
 if [ "$HTTPS_ENABLED" = true ]; then
-    uvicorn server:app \
+    nohup uvicorn server:app \
         --host 0.0.0.0 \
         --port $FILE_SERVER_PORT \
         --ssl-certfile "$SSL_CERT_FILE" \
         --ssl-keyfile "$SSL_KEY_FILE" \
         --reload \
-        --log-level debug &
+        --log-level debug > file_server.log 2>&1 &
     FILE_SERVER_PID=$!
     print_green "File server started with HTTPS on port $FILE_SERVER_PORT (PID: $FILE_SERVER_PID)"
 else
-    uvicorn server:app \
+    nohup uvicorn server:app \
         --host 0.0.0.0 \
         --port $FILE_SERVER_PORT \
         --reload \
-        --log-level debug &
+        --log-level debug > file_server.log 2>&1 &
     FILE_SERVER_PID=$!
     print_green "File server started with HTTP on port $FILE_SERVER_PORT (PID: $FILE_SERVER_PID)"
 fi
@@ -208,21 +208,21 @@ fi
 print_blue "Starting execution server on port $EXEC_SERVER_PORT..."
 cd $WORKSPACE_ROOT/aio_server
 if [ "$HTTPS_ENABLED" = true ]; then
-    PYTHONPATH=$WORKSPACE_ROOT/aio_server uvicorn app.api.server:app \
+    nohup env PYTHONPATH=$WORKSPACE_ROOT/aio_server uvicorn app.api.server:app \
         --host 0.0.0.0 \
         --port $EXEC_SERVER_PORT \
         --ssl-keyfile "$SSL_KEY_FILE" \
         --ssl-certfile "$SSL_CERT_FILE" \
         --reload \
-        --log-level debug &
+        --log-level debug > exec_server.log 2>&1 &
     EXEC_SERVER_PID=$!
     print_green "Execution server started with HTTPS on port $EXEC_SERVER_PORT (PID: $EXEC_SERVER_PID)"
 else
-    PYTHONPATH=$WORKSPACE_ROOT/aio_server uvicorn app.api.server:app \
+    nohup env PYTHONPATH=$WORKSPACE_ROOT/aio_server uvicorn app.api.server:app \
         --host 0.0.0.0 \
         --port $EXEC_SERVER_PORT \
         --reload \
-        --log-level debug &
+        --log-level debug > exec_server.log 2>&1 &
     EXEC_SERVER_PID=$!
     print_green "Execution server started with HTTP on port $EXEC_SERVER_PORT (PID: $EXEC_SERVER_PID)"
 fi
@@ -249,11 +249,7 @@ print_green "All servers are running!"
 print_blue "File server is running on $protocol://localhost:$FILE_SERVER_PORT (PID: $FILE_SERVER_PID)"
 print_blue "Execution server is running on $protocol://localhost:$EXEC_SERVER_PORT (PID: $EXEC_SERVER_PID)"
 
-# Wait for any process to exit
-wait -n
-
-# Kill all remaining processes when one exits
-cleanup
+# Removed wait -n and final cleanup so the script exits after starting the services
 
 # conda environment exit (if script can reach here)
 conda deactivate 
