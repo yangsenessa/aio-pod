@@ -1,5 +1,5 @@
 """
-AIO-MCP 执行服务
+AIO-MCP Execution Service
 """
 
 __version__ = "0.1.0" 
