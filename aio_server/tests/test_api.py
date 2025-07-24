@@ -32,7 +32,7 @@ def create_test_mcp():
     """Create a test mcp file"""
     mcp_path = os.path.join("uploads", "mcp", TEST_MCP)
     os.makedirs(os.path.dirname(mcp_path), exist_ok=True)
-    # 确保文件存在
+    # Ensure file exists
     if not os.path.exists(mcp_path):
         with open(mcp_path, "w") as f:
             f.write("#!/bin/bash\necho 'test output'")
