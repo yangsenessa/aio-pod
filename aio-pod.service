@@ -1,0 +1,49 @@
+[Unit]
+Description=AIO-Pod Services
+Documentation=https://github.com/aio2030/aio-pod
+After=network.target nginx.service
+Wants=nginx.service
+
+[Service]
+Type=forking
+User=root
+Group=root
+WorkingDirectory=/root/AIO-2030/aio-pod
+Environment=PATH=/root/miniconda3/envs/aiopod/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=/root/AIO-2030/aio-pod
+
+# Start command
+ExecStart=/root/AIO-2030/aio-pod/start_aio_pod.sh
+
+# Stop command
+ExecStop=/root/AIO-2030/aio-pod/stop_aio_pod.sh
+
+# Restart command
+ExecReload=/bin/kill -HUP $MAINPID
+
+# PID files
+PIDFile=/root/AIO-2030/aio-pod/aio_server/file_server.pid
+PIDFile=/root/AIO-2030/aio-pod/aio_server/exec_server.pid
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Timeout settings
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/root/AIO-2030/aio-pod/aio_server/uploads
+ReadWritePaths=/root/AIO-2030/aio-pod/aio_server/log
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aio-pod
+
+[Install]
+WantedBy=multi-user.target 
