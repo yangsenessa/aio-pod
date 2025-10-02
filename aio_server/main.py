@@ -17,6 +17,6 @@ if __name__ == "__main__":
         "main:app",
         host=host,
         port=port,
-        reload=True,
+        reload=False,
         log_level=log_level
     ) 

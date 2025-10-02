@@ -190,7 +190,6 @@ if [ "$HTTPS_ENABLED" = true ]; then
         --port $FILE_SERVER_PORT \
         --ssl-certfile "$SSL_CERT_FILE" \
         --ssl-keyfile "$SSL_KEY_FILE" \
-        --reload \
         --log-level debug > file_server.log 2>&1 &
     FILE_SERVER_PID=$!
     print_green "File server started with HTTPS on port $FILE_SERVER_PORT (PID: $FILE_SERVER_PID)"
@@ -198,7 +197,6 @@ else
     nohup uvicorn server:app \
         --host 0.0.0.0 \
         --port $FILE_SERVER_PORT \
-        --reload \
         --log-level debug > file_server.log 2>&1 &
     FILE_SERVER_PID=$!
     print_green "File server started with HTTP on port $FILE_SERVER_PORT (PID: $FILE_SERVER_PID)"
@@ -213,7 +211,6 @@ if [ "$HTTPS_ENABLED" = true ]; then
         --port $EXEC_SERVER_PORT \
         --ssl-keyfile "$SSL_KEY_FILE" \
         --ssl-certfile "$SSL_CERT_FILE" \
-        --reload \
         --log-level debug > exec_server.log 2>&1 &
     EXEC_SERVER_PID=$!
     print_green "Execution server started with HTTPS on port $EXEC_SERVER_PORT (PID: $EXEC_SERVER_PID)"
@@ -221,7 +218,6 @@ else
     nohup env PYTHONPATH=$WORKSPACE_ROOT/aio_server uvicorn app.api.server:app \
         --host 0.0.0.0 \
         --port $EXEC_SERVER_PORT \
-        --reload \
         --log-level debug > exec_server.log 2>&1 &
     EXEC_SERVER_PID=$!
     print_green "Execution server started with HTTP on port $EXEC_SERVER_PORT (PID: $EXEC_SERVER_PID)"

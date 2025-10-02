@@ -229,7 +229,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8001, use_https: bool = False,
         config = {
             "host": host,
             "port": port,
-            "reload": True,  # Enable auto-reload for development
+            "reload": False,  # Disable auto-reload to prevent watchfiles logs
             "log_level": "info",
             "access_log": True,
             "workers": 1,

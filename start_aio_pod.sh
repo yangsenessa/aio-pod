@@ -126,7 +126,6 @@ start_file_server() {
     nohup uvicorn server:app \
         --host 0.0.0.0 \
         --port $FILE_SERVER_PORT \
-        --reload \
         --log-level debug > file_server.log 2>&1 &
     
     FILE_SERVER_PID=$!
@@ -141,20 +140,27 @@ start_exec_server() {
     
     cd "$AIO_SERVER_DIR"
     
-    # Check if exec server exists
+    # Check if exec server exists, otherwise use main.py
     if [[ -f "exec_server.py" ]]; then
         nohup uvicorn exec_server:app \
             --host 0.0.0.0 \
             --port $EXEC_SERVER_PORT \
-            --reload \
             --log-level debug > exec_server.log 2>&1 &
         
         EXEC_SERVER_PID=$!
         echo $EXEC_SERVER_PID > exec_server.pid
         
         print_success "Exec server started (PID: $EXEC_SERVER_PID)"
+    elif [[ -f "main.py" ]]; then
+        # Use main.py to start the server on port 8000
+        nohup python main.py > exec_server.log 2>&1 &
+        
+        EXEC_SERVER_PID=$!
+        echo $EXEC_SERVER_PID > exec_server.pid
+        
+        print_success "Main server started on port $EXEC_SERVER_PORT (PID: $EXEC_SERVER_PID)"
     else
-        print_warning "exec_server.py not found, skipping exec server"
+        print_warning "Neither exec_server.py nor main.py found, skipping exec server"
     fi
 }
 
