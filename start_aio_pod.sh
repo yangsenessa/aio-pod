@@ -127,8 +127,14 @@ check_ports() {
 kill_existing_processes() {
     print_info "Cleaning up existing processes..."
     
-    # Kill processes on our ports
-    lsof -ti:$FILE_SERVER_PORT,$EXEC_SERVER_PORT,$CHAT_ROUTER_PORT | xargs -r kill -9 2>/dev/null || true
+    # Kill processes on our ports (compatible with both Linux and macOS)
+    local pids=$(lsof -ti:$FILE_SERVER_PORT,$EXEC_SERVER_PORT,$CHAT_ROUTER_PORT 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+        echo "$pids" | xargs kill -9 2>/dev/null || true
+        print_info "Killed existing processes on ports $FILE_SERVER_PORT, $EXEC_SERVER_PORT, $CHAT_ROUTER_PORT"
+    else
+        print_info "No existing processes found on ports"
+    fi
     
     print_success "Existing processes cleaned up"
 }
