@@ -80,19 +80,29 @@ stop_by_port() {
     
     if lsof -i :$port > /dev/null 2>&1; then
         print_info "Stopping processes on port $port..."
-        lsof -ti:$port | xargs -r kill -TERM
         
-        # Wait for graceful shutdown
-        local count=0
-        while lsof -i :$port > /dev/null 2>&1 && [ $count -lt 10 ]; do
-            sleep 1
-            count=$((count + 1))
-        done
+        # Get PIDs (compatible with both Linux and macOS)
+        local pids=$(lsof -ti:$port 2>/dev/null || true)
         
-        # Force kill if still running
-        if lsof -i :$port > /dev/null 2>&1; then
-            print_warning "Force killing processes on port $port..."
-            lsof -ti:$port | xargs -r kill -KILL
+        if [[ -n "$pids" ]]; then
+            # Try graceful shutdown first
+            echo "$pids" | xargs kill -TERM 2>/dev/null || true
+            
+            # Wait for graceful shutdown
+            local count=0
+            while lsof -i :$port > /dev/null 2>&1 && [ $count -lt 10 ]; do
+                sleep 1
+                count=$((count + 1))
+            done
+            
+            # Force kill if still running
+            if lsof -i :$port > /dev/null 2>&1; then
+                print_warning "Force killing processes on port $port..."
+                pids=$(lsof -ti:$port 2>/dev/null || true)
+                if [[ -n "$pids" ]]; then
+                    echo "$pids" | xargs kill -KILL 2>/dev/null || true
+                fi
+            fi
         fi
         
         print_success "Processes on port $port stopped"
