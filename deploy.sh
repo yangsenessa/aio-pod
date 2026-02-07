@@ -15,7 +15,9 @@ NC='\033[0m' # No Color
 # Configuration
 DOMAIN="mcp.aio2030.fun"
 EMAIL="admin@aio2030.fun"  # Change this to your email
-WORKSPACE_ROOT="/root/AIO-2030/aio-pod"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$SCRIPT_DIR"
 
 # Print colored text
 print_info() {

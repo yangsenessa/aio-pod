@@ -1,0 +1,93 @@
+#!/bin/bash
+
+# =============================================================================
+# AIO-Pod 本地环境配置文件
+# =============================================================================
+# 这个文件用于配置本地开发或生产环境的环境变量
+# 复制此文件为 export_env_local.sh 并修改实际值
+# =============================================================================
+
+# =============================================================================
+# OpenClaw Gateway 配置 - Chat Router 服务需要
+# =============================================================================
+
+# OpenClaw Gateway 地址 (默认本地)
+export OPENCLAW_GATEWAY_HOST="127.0.0.1"
+
+# OpenClaw Gateway 端口 (默认 18789)
+export OPENCLAW_GATEWAY_PORT="18789"
+
+# OpenClaw Gateway 认证 Token
+# 重要：请替换为你的实际 Token！
+# 获取方式：从 OpenClaw Gateway 管理界面或配置文件中获取
+export OPENCLAW_GATEWAY_TOKEN="your-actual-token-here"
+
+# 默认 Agent ID (默认 main)
+export OPENCLAW_DEFAULT_AGENT="main"
+
+# Chat Router 服务端口 (默认 8002)
+export CHAT_ROUTER_PORT="8002"
+
+# =============================================================================
+# 腾讯云 IoT 配置 - MCP 服务需要
+# =============================================================================
+
+# IoT 角色 ARN - 用于 STS 临时凭证申请
+# 格式: qcs::cam::uin/{UIN}:roleName/{角色名称}
+export IOT_ROLE_ARN="qcs::cam::uin/YOUR_UIN:roleName/YOUR_ROLE_NAME"
+
+# =============================================================================
+# 腾讯云访问凭证
+# =============================================================================
+
+# 推荐使用子账号密钥，比主账号密钥更安全
+export TC_SECRET_ID="YOUR_SECRET_ID"
+export TC_SECRET_KEY="YOUR_SECRET_KEY"
+
+# =============================================================================
+# COS 对象存储配置 - 可选
+# =============================================================================
+
+# COS 存储桶拥有者 UIN
+export COS_OWNER_UIN="YOUR_UIN"
+
+# COS 存储桶名称
+export COS_BUCKET_NAME="your-bucket-name"
+
+# COS 地域
+export COS_REGION="ap-guangzhou"
+
+# COS 存储桶名称（兼容旧版本）
+export COS_BUCKET="pixelmug-assets"
+
+# =============================================================================
+# 通用服务配置
+# =============================================================================
+
+# 默认地域
+export DEFAULT_REGION="ap-guangzhou"
+
+# 日志级别: DEBUG, INFO, WARNING, ERROR
+export LOG_LEVEL="INFO"
+
+# =============================================================================
+# 使用说明
+# =============================================================================
+# 
+# 1. 复制模板文件:
+#    cp export_env_local.sh.template export_env_local.sh
+#
+# 2. 编辑配置文件:
+#    vim export_env_local.sh
+#    或
+#    nano export_env_local.sh
+#
+# 3. 修改实际值，特别是:
+#    - OPENCLAW_GATEWAY_TOKEN (必需，用于 Chat Router)
+#    - TC_SECRET_ID / TC_SECRET_KEY (必需，用于腾讯云服务)
+#    - IOT_ROLE_ARN (必需，用于 IoT 服务)
+#
+# 4. 启动服务:
+#    ./start_aio_pod.sh
+#
+# =============================================================================

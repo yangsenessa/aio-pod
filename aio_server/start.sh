@@ -79,7 +79,9 @@ SSL_CERT_FILE="$CERT_DIR/server.crt"
 SSL_KEY_FILE="$CERT_DIR/server.key"
 FILE_SERVER_PORT=8001
 EXEC_SERVER_PORT=8000
-WORKSPACE_ROOT="/root/AIO-2030/aio-pod"
+# Get the directory where this script is located, then go up one level to get workspace root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do

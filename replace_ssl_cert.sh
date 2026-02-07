@@ -14,7 +14,9 @@ NC='\033[0m' # No Color
 
 # 配置
 DOMAIN="mcp.aio2030.fun"
-CERT_DIR="/root/AIO-2030/aio-pod/certification"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CERT_DIR="$SCRIPT_DIR/certification"
 LIVE_DIR="/etc/letsencrypt/live/${DOMAIN}"
 ARCHIVE_DIR="/etc/letsencrypt/archive/${DOMAIN}"
 NEW_FULLCHAIN="${CERT_DIR}/fullchain.pem"

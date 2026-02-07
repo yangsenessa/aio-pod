@@ -13,10 +13,13 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-WORKSPACE_ROOT="/root/AIO-2030/aio-pod"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$SCRIPT_DIR"
 AIO_SERVER_DIR="$WORKSPACE_ROOT/aio_server"
 FILE_SERVER_PORT=8001
 EXEC_SERVER_PORT=8000
+CHAT_ROUTER_PORT=8002
 
 # Print colored text
 print_info() {
@@ -105,7 +108,7 @@ cleanup_logs() {
     cd "$AIO_SERVER_DIR"
     
     # Archive old logs
-    for log_file in file_server.log exec_server.log; do
+    for log_file in file_server.log exec_server.log chat_router.log; do
         if [[ -f "$log_file" ]]; then
             local timestamp=$(date +%Y%m%d_%H%M%S)
             mv "$log_file" "${log_file}.${timestamp}"
@@ -134,16 +137,43 @@ display_status() {
         echo "Exec Server: STOPPED"
     fi
     
-    if systemctl is-active --quiet nginx; then
-        echo "Nginx: RUNNING"
+    if lsof -i :$CHAT_ROUTER_PORT > /dev/null 2>&1; then
+        echo "Chat Router: RUNNING on port $CHAT_ROUTER_PORT"
     else
-        echo "Nginx: STOPPED"
+        echo "Chat Router: STOPPED"
+    fi
+    
+    # Check nginx status (compatible with both Linux and macOS)
+    if command -v systemctl &> /dev/null; then
+        # Linux with systemd
+        if systemctl is-active --quiet nginx 2>/dev/null; then
+            echo "Nginx: RUNNING"
+        else
+            echo "Nginx: STOPPED"
+        fi
+    elif command -v nginx &> /dev/null; then
+        # Check if nginx process is running
+        if pgrep -x nginx > /dev/null 2>&1; then
+            echo "Nginx: RUNNING"
+        else
+            echo "Nginx: STOPPED"
+        fi
+    else
+        echo "Nginx: NOT INSTALLED"
     fi
     echo
     echo "=== To Restart Services ==="
     echo "Start services: ./start_aio_pod.sh"
-    echo "Start nginx: systemctl start nginx"
-    echo "Restart nginx: systemctl restart nginx"
+    
+    # Show appropriate nginx commands based on platform
+    if command -v systemctl &> /dev/null; then
+        echo "Start nginx: systemctl start nginx"
+        echo "Restart nginx: systemctl restart nginx"
+    elif command -v nginx &> /dev/null; then
+        echo "Start nginx: sudo nginx"
+        echo "Restart nginx: sudo nginx -s reload"
+        echo "Stop nginx: sudo nginx -s stop"
+    fi
 }
 
 # Main execution
@@ -154,10 +184,12 @@ main() {
     # Stop by PID files first (graceful shutdown)
     stop_by_pid "file_server"
     stop_by_pid "exec_server"
+    stop_by_pid "chat_router"
     
     # Stop by ports (fallback)
     stop_by_port $FILE_SERVER_PORT "file server"
     stop_by_port $EXEC_SERVER_PORT "exec server"
+    stop_by_port $CHAT_ROUTER_PORT "chat router"
     
     # Clean up logs
     cleanup_logs
