@@ -20,6 +20,49 @@ class ExecutionService:
     """Executable file execution service class"""
     
     @staticmethod
+    def _sanitize_json_for_logging(data: Any) -> Any:
+        """
+        Remove sensitive fields (like image_base64) from JSON data for logging
+        
+        Args:
+            data: JSON data (dict, list, or primitive)
+            
+        Returns:
+            Sanitized data with image_base64 fields removed
+        """
+        if isinstance(data, dict):
+            sanitized = {}
+            for key, value in data.items():
+                if key == "image_base64":
+                    sanitized[key] = "[REDACTED]"
+                else:
+                    sanitized[key] = ExecutionService._sanitize_json_for_logging(value)
+            return sanitized
+        elif isinstance(data, list):
+            return [ExecutionService._sanitize_json_for_logging(item) for item in data]
+        else:
+            return data
+    
+    @staticmethod
+    def _sanitize_json_string_for_logging(json_str: str) -> str:
+        """
+        Remove image_base64 from JSON string for logging
+        
+        Args:
+            json_str: JSON string
+            
+        Returns:
+            Sanitized JSON string
+        """
+        try:
+            data = json.loads(json_str)
+            sanitized = ExecutionService._sanitize_json_for_logging(data)
+            return json.dumps(sanitized, ensure_ascii=False, separators=(',', ':'))
+        except (json.JSONDecodeError, TypeError):
+            # If parsing fails, return original string
+            return json_str
+    
+    @staticmethod
     async def execute_file(
         filepath: str,
         arguments: Optional[List[str]] = None,
@@ -336,9 +379,10 @@ class ExecutionService:
         # For debugging - log response content
         if result.stdout:
             logger.info(f"Response size: {len(result.stdout)} bytes")
-            # Try to log a small preview of the response
-            preview_size = min(100, len(result.stdout))
-            logger.info(f"Response preview: {result.stdout[:preview_size]}...")
+            # Try to log a small preview of the response (sanitized)
+            sanitized_stdout = ExecutionService._sanitize_json_string_for_logging(result.stdout)
+            preview_size = min(100, len(sanitized_stdout))
+            logger.info(f"Response preview: {sanitized_stdout[:preview_size]}...")
         else:
             logger.warning("No stdout response received")
         
@@ -365,7 +409,9 @@ class ExecutionService:
         # Try to parse JSON-RPC response
         try:
             if result.stdout:
-                logger.info(f"Parsing JSON-RPC response: {result.stdout}")
+                # Sanitize JSON before logging to remove sensitive data like image_base64
+                sanitized_stdout = ExecutionService._sanitize_json_string_for_logging(result.stdout)
+                logger.info(f"Parsing JSON-RPC response: {sanitized_stdout}")
                 response = json.loads(result.stdout)
                 logger.info("JSON-RPC execution completed successfully")
                 return response

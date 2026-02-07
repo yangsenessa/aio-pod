@@ -19,6 +19,49 @@ FILE_SERVER_PORT=8001
 EXEC_SERVER_PORT=8000
 CONDA_ENV="aiopod"
 
+# Environment variables for PixelMug MCP Service
+# =============================================================================
+# 必需的环境变量 - 必须配置
+# =============================================================================
+
+# IoT角色ARN - 用于STS临时凭证申请
+# 格式: qcs::cam::uin/{UIN}:roleName/{角色名称}
+export IOT_ROLE_ARN="${IOT_ROLE_ARN:-qcs::cam::uin/YOUR_UIN:roleName/YOUR_ROLE_NAME}"
+
+# =============================================================================
+# 腾讯云访问凭证 - 必须配置
+# =============================================================================
+
+# 推荐使用子账号密钥，比主账号密钥更安全
+export TC_SECRET_ID="${TC_SECRET_ID:-YOUR_SECRET_ID}"
+export TC_SECRET_KEY="${TC_SECRET_KEY:-YOUR_SECRET_KEY}"
+
+# =============================================================================
+# COS对象存储配置 - 可选，如果使用COS功能需要配置
+# =============================================================================
+
+# COS存储桶拥有者UIN - 拥有COS存储桶的腾讯云账号UIN
+export COS_OWNER_UIN="${COS_OWNER_UIN:-YOUR_UIN}"
+
+# COS存储桶名称 - 用于存储像素图片和GIF动画
+export COS_BUCKET_NAME="${COS_BUCKET_NAME:-your-bucket-name}"
+
+# COS地域 - 存储桶所在的地域
+export COS_REGION="${COS_REGION:-ap-guangzhou}"
+
+# =============================================================================
+# 服务配置 - 可选，有默认值
+# =============================================================================
+
+# 默认地域 - 腾讯云服务默认地域
+export DEFAULT_REGION="${DEFAULT_REGION:-ap-guangzhou}"
+
+# COS存储桶名称（兼容旧版本）
+export COS_BUCKET="${COS_BUCKET:-pixelmug-assets}"
+
+# 日志级别 - DEBUG, INFO, WARNING, ERROR
+export LOG_LEVEL="${LOG_LEVEL:-INFO}"
+
 # Print colored text
 print_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -68,7 +111,16 @@ kill_existing_processes() {
 setup_conda() {
     print_info "Setting up conda environment..."
     
-    # Check if conda is available
+    # Add conda to PATH if not available
+    if ! command -v conda &> /dev/null; then
+        print_info "Adding conda to PATH..."
+        export PATH="/root/miniconda3/bin:$PATH"
+        
+        # Initialize conda for this session
+        eval "$(/root/miniconda3/bin/conda shell.bash hook)"
+    fi
+    
+    # Check if conda is now available
     if ! command -v conda &> /dev/null; then
         print_error "conda not found. Please install Anaconda or Miniconda"
         exit 1
@@ -258,6 +310,28 @@ display_status() {
     echo "MCP Execute: https://mcp.aio2030.fun/api/v1/mcp/{filename}"
 }
 
+# Load environment variables
+load_environment() {
+    print_info "Loading environment variables..."
+    
+    # Check if local environment file exists
+    if [[ -f "$WORKSPACE_ROOT/export_env_local.sh" ]]; then
+        print_info "Loading local environment configuration..."
+        source "$WORKSPACE_ROOT/export_env_local.sh"
+        print_success "Local environment configuration loaded"
+    else
+        print_warning "No local environment file found at $WORKSPACE_ROOT/export_env_local.sh"
+        print_info "Using default environment variables"
+    fi
+    
+    # Display key environment variables (without sensitive data)
+    print_info "Environment configuration:"
+    print_info "  IOT_ROLE_ARN: ${IOT_ROLE_ARN:0:20}..."
+    print_info "  TC_SECRET_ID: ${TC_SECRET_ID:0:10}..."
+    print_info "  DEFAULT_REGION: $DEFAULT_REGION"
+    print_info "  LOG_LEVEL: $LOG_LEVEL"
+}
+
 # Main execution
 main() {
     print_info "Starting AIO-Pod services..."
@@ -266,6 +340,7 @@ main() {
     print_info "Exec Server Port: $EXEC_SERVER_PORT"
     echo
     
+    load_environment
     check_ports
     kill_existing_processes
     setup_conda
