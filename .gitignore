@@ -177,3 +177,12 @@ cython_debug/
 #log
 *.log
 *.log.*
+
+# SSL Certificates and Keys
+*.pem
+*.key
+*.crt
+*.cert
+certification/
+**/certs/
+**/certificates/
