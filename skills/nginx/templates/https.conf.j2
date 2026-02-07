@@ -1,0 +1,90 @@
+# Nginx HTTPS Configuration Template
+# Domain: {{ domain }}
+# Service: {{ service_type }}
+# Backend: http://127.0.0.1:{{ backend_port }}
+
+# HTTP 重定向到 HTTPS
+server {
+    listen 80;
+    server_name {{ domain }};
+    
+    # Let's Encrypt ACME 挑战
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    
+    # 其他请求重定向到 HTTPS
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+# HTTPS 配置
+server {
+    listen 443 ssl http2;
+    server_name {{ domain }};
+
+    # SSL 证书配置
+    ssl_certificate {{ cert_path }};
+    ssl_certificate_key {{ key_path }};
+    
+    # SSL 协议和加密套件
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    
+    # SSL 会话缓存
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    
+    # HSTS (可选，取消注释以启用)
+    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # 日志配置
+    access_log /var/log/nginx/{{ domain }}_access.log;
+    error_log /var/log/nginx/{{ domain }}_error.log;
+
+    # 客户端最大请求体大小
+    client_max_body_size {{ max_body_size }};
+
+    # 代理配置
+    location / {
+        proxy_pass http://127.0.0.1:{{ backend_port }};
+        proxy_http_version 1.1;
+        
+        # 代理头设置
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket 支持
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # 超时设置
+        proxy_connect_timeout {{ proxy_timeout }}s;
+        proxy_send_timeout {{ proxy_timeout }}s;
+        proxy_read_timeout {{ proxy_timeout }}s;
+        
+        # 缓冲设置
+        proxy_buffering off;
+        proxy_request_buffering off;
+        
+        # CORS 头（根据需要调整）
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With" always;
+        
+        # OPTIONS 请求处理
+        if ($request_method = 'OPTIONS') {
+            return 204;
+        }
+    }
+
+    # 健康检查端点
+    location /health {
+        proxy_pass http://127.0.0.1:{{ backend_port }}/health;
+        access_log off;
+    }
+}

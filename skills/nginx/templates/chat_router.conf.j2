@@ -1,0 +1,164 @@
+# Nginx Configuration for Chat Router (OpenAI-Compatible API)
+# Domain: {{ domain }}
+# Backend: http://127.0.0.1:{{ backend_port }}
+
+{% if enable_ssl %}
+# HTTP 重定向到 HTTPS
+server {
+    listen 80;
+    server_name {{ domain }};
+    
+    # Let's Encrypt ACME 挑战
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    
+    # 其他请求重定向到 HTTPS
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+# HTTPS 配置
+server {
+    listen 443 ssl http2;
+    server_name {{ domain }};
+
+    # SSL 证书配置
+    ssl_certificate {{ cert_path }};
+    ssl_certificate_key {{ key_path }};
+    
+    # SSL 协议和加密套件
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    
+    # SSL 会话缓存
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # 日志配置
+    access_log /var/log/nginx/{{ domain }}_access.log;
+    error_log /var/log/nginx/{{ domain }}_error.log;
+
+    # 客户端最大请求体大小（聊天 API 通常不需要太大）
+    client_max_body_size 10M;
+
+    # OpenAI API 端点
+    location /v1/ {
+        proxy_pass http://127.0.0.1:{{ backend_port }}/v1/;
+        proxy_http_version 1.1;
+        
+        # 代理头设置
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket 支持（用于流式响应）
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # 超时设置（聊天可能需要较长时间）
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        
+        # 流式响应需要关闭缓冲
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        
+        # SSE (Server-Sent Events) 支持
+        proxy_set_header Cache-Control 'no-cache';
+        
+        # CORS 头（OpenAI API 兼容）
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With" always;
+        add_header Access-Control-Expose-Headers "Content-Length, Content-Type" always;
+        
+        # OPTIONS 请求处理
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin "*";
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS";
+            add_header Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With";
+            add_header Access-Control-Max-Age 3600;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+    }
+
+    # 健康检查端点
+    location /health {
+        proxy_pass http://127.0.0.1:{{ backend_port }}/health;
+        access_log off;
+    }
+    
+    # 根路径重定向到文档或状态页
+    location = / {
+        return 302 /health;
+    }
+}
+{% else %}
+# HTTP 配置
+server {
+    listen 80;
+    server_name {{ domain }};
+
+    # 日志配置
+    access_log /var/log/nginx/{{ domain }}_access.log;
+    error_log /var/log/nginx/{{ domain }}_error.log;
+
+    # 客户端最大请求体大小
+    client_max_body_size 10M;
+
+    # OpenAI API 端点
+    location /v1/ {
+        proxy_pass http://127.0.0.1:{{ backend_port }}/v1/;
+        proxy_http_version 1.1;
+        
+        # 代理头设置
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket 支持
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # 超时设置
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        
+        # 流式响应需要关闭缓冲
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        
+        # CORS 头
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With" always;
+        
+        # OPTIONS 请求处理
+        if ($request_method = 'OPTIONS') {
+            return 204;
+        }
+    }
+
+    # 健康检查端点
+    location /health {
+        proxy_pass http://127.0.0.1:{{ backend_port }}/health;
+        access_log off;
+    }
+    
+    # 根路径重定向
+    location = / {
+        return 302 /health;
+    }
+}
+{% endif %}

@@ -13,10 +13,13 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-WORKSPACE_ROOT="/root/AIO-2030/aio-pod"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$SCRIPT_DIR"
 AIO_SERVER_DIR="$WORKSPACE_ROOT/aio_server"
 FILE_SERVER_PORT=8001
 EXEC_SERVER_PORT=8000
+CHAT_ROUTER_PORT=8002
 CONDA_ENV="aiopod"
 
 # Environment variables for PixelMug MCP Service
@@ -48,6 +51,24 @@ export COS_BUCKET_NAME="${COS_BUCKET_NAME:-your-bucket-name}"
 
 # COS地域 - 存储桶所在的地域
 export COS_REGION="${COS_REGION:-ap-guangzhou}"
+
+# =============================================================================
+# OpenClaw Gateway 配置 - Chat Router 服务需要
+# =============================================================================
+
+# OpenClaw Gateway 地址和端口
+export OPENCLAW_GATEWAY_HOST="${OPENCLAW_GATEWAY_HOST:-127.0.0.1}"
+export OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
+
+# OpenClaw Gateway 认证 Token
+export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-sk-lm-gyXsWZIS:opqYGydrY8dwynxrZNT6}"
+
+# 默认 Agent ID
+export OPENCLAW_DEFAULT_AGENT="${OPENCLAW_DEFAULT_AGENT:-main}"
+
+# Chat Router 服务配置
+export CHAT_ROUTER_HOST="${CHAT_ROUTER_HOST:-0.0.0.0}"
+export CHAT_ROUTER_PORT="${CHAT_ROUTER_PORT:-8002}"
 
 # =============================================================================
 # 服务配置 - 可选，有默认值
@@ -93,7 +114,12 @@ check_ports() {
         return 1
     fi
     
-    print_success "Ports $FILE_SERVER_PORT and $EXEC_SERVER_PORT are available"
+    if lsof -i :$CHAT_ROUTER_PORT > /dev/null 2>&1; then
+        print_warning "Port $CHAT_ROUTER_PORT is already in use"
+        return 1
+    fi
+    
+    print_success "Ports $FILE_SERVER_PORT, $EXEC_SERVER_PORT and $CHAT_ROUTER_PORT are available"
     return 0
 }
 
@@ -102,7 +128,7 @@ kill_existing_processes() {
     print_info "Cleaning up existing processes..."
     
     # Kill processes on our ports
-    lsof -ti:$FILE_SERVER_PORT,$EXEC_SERVER_PORT | xargs -r kill -9 2>/dev/null || true
+    lsof -ti:$FILE_SERVER_PORT,$EXEC_SERVER_PORT,$CHAT_ROUTER_PORT | xargs -r kill -9 2>/dev/null || true
     
     print_success "Existing processes cleaned up"
 }
@@ -113,11 +139,37 @@ setup_conda() {
     
     # Add conda to PATH if not available
     if ! command -v conda &> /dev/null; then
-        print_info "Adding conda to PATH..."
-        export PATH="/root/miniconda3/bin:$PATH"
+        print_info "Conda not in PATH, searching for conda installation..."
         
-        # Initialize conda for this session
-        eval "$(/root/miniconda3/bin/conda shell.bash hook)"
+        # Common conda installation locations
+        CONDA_PATHS=(
+            "$HOME/miniconda3"
+            "$HOME/anaconda3"
+            "$HOME/conda"
+            "/opt/conda"
+            "/opt/miniconda3"
+            "/opt/anaconda3"
+        )
+        
+        CONDA_FOUND=false
+        for conda_path in "${CONDA_PATHS[@]}"; do
+            if [[ -f "$conda_path/bin/conda" ]]; then
+                print_info "Found conda at: $conda_path"
+                export PATH="$conda_path/bin:$PATH"
+                eval "$($conda_path/bin/conda shell.bash hook)"
+                CONDA_FOUND=true
+                break
+            fi
+        done
+        
+        if [[ "$CONDA_FOUND" == false ]]; then
+            print_error "conda not found. Please install Anaconda or Miniconda"
+            print_info "Common installation locations checked:"
+            for conda_path in "${CONDA_PATHS[@]}"; do
+                print_info "  - $conda_path"
+            done
+            exit 1
+        fi
     fi
     
     # Check if conda is now available
@@ -205,7 +257,7 @@ start_exec_server() {
         print_success "Exec server started (PID: $EXEC_SERVER_PID)"
     elif [[ -f "main.py" ]]; then
         # Use main.py to start the server on port 8000
-        nohup python main.py > exec_server.log 2>&1 &
+        nohup python3 main.py > exec_server.log 2>&1 &
         
         EXEC_SERVER_PID=$!
         echo $EXEC_SERVER_PID > exec_server.pid
@@ -213,6 +265,26 @@ start_exec_server() {
         print_success "Main server started on port $EXEC_SERVER_PORT (PID: $EXEC_SERVER_PID)"
     else
         print_warning "Neither exec_server.py nor main.py found, skipping exec server"
+    fi
+}
+
+# Start chat router server
+start_chat_router() {
+    print_info "Starting chat router server on port $CHAT_ROUTER_PORT..."
+    
+    cd "$AIO_SERVER_DIR"
+    
+    # Check if chat_router_server.py exists
+    if [[ -f "chat_router_server.py" ]]; then
+        # Use python3 from conda environment (which should be activated)
+        nohup python3 chat_router_server.py > chat_router.log 2>&1 &
+        
+        CHAT_ROUTER_PID=$!
+        echo $CHAT_ROUTER_PID > chat_router.pid
+        
+        print_success "Chat router server started (PID: $CHAT_ROUTER_PID)"
+    else
+        print_warning "chat_router_server.py not found, skipping chat router server"
     fi
 }
 
@@ -241,7 +313,7 @@ wait_for_servers() {
     fi
     
     # Wait for exec server if it exists
-    if [[ -f "$AIO_SERVER_DIR/exec_server.py" ]]; then
+    if [[ -f "$AIO_SERVER_DIR/exec_server.py" || -f "$AIO_SERVER_DIR/main.py" ]]; then
         attempt=1
         while [ $attempt -le $max_attempts ]; do
             if curl -s "http://localhost:$EXEC_SERVER_PORT/health" > /dev/null 2>&1; then
@@ -258,6 +330,25 @@ wait_for_servers() {
             print_warning "Exec server may not be ready"
         fi
     fi
+    
+    # Wait for chat router server if it exists
+    if [[ -f "$AIO_SERVER_DIR/chat_router_server.py" ]]; then
+        attempt=1
+        while [ $attempt -le $max_attempts ]; do
+            if curl -s "http://localhost:$CHAT_ROUTER_PORT/health" > /dev/null 2>&1; then
+                print_success "Chat router server is ready"
+                break
+            fi
+            
+            sleep 1
+            attempt=$((attempt + 1))
+            print_info "Waiting for chat router server (attempt $attempt/$max_attempts)..."
+        done
+        
+        if [ $attempt -gt $max_attempts ]; then
+            print_warning "Chat router server may not be ready"
+        fi
+    fi
 }
 
 # Test endpoints
@@ -272,11 +363,20 @@ test_endpoints() {
     fi
     
     # Test exec server health if it exists
-    if [[ -f "$AIO_SERVER_DIR/exec_server.py" ]]; then
+    if [[ -f "$AIO_SERVER_DIR/exec_server.py" || -f "$AIO_SERVER_DIR/main.py" ]]; then
         if curl -s "http://localhost:$EXEC_SERVER_PORT/health" | grep -q "healthy"; then
             print_success "Exec server health check passed"
         else
             print_warning "Exec server health check failed"
+        fi
+    fi
+    
+    # Test chat router server health if it exists
+    if [[ -f "$AIO_SERVER_DIR/chat_router_server.py" ]]; then
+        if curl -s "http://localhost:$CHAT_ROUTER_PORT/health" > /dev/null 2>&1; then
+            print_success "Chat router server health check passed"
+        else
+            print_warning "Chat router server health check failed"
         fi
     fi
 }
@@ -289,25 +389,118 @@ display_status() {
     echo "=== Service Status ==="
     echo "File Server: http://localhost:$FILE_SERVER_PORT"
     echo "Exec Server: http://localhost:$EXEC_SERVER_PORT"
+    echo "Chat Router: http://localhost:$CHAT_ROUTER_PORT"
     echo "Nginx Proxy: https://mcp.aio2030.fun"
+    echo "Nginx Proxy (Chat): https://webchat.aio2030.fun"
     echo
     echo "=== Log Files ==="
     echo "File Server Log: $AIO_SERVER_DIR/file_server.log"
     echo "Exec Server Log: $AIO_SERVER_DIR/exec_server.log"
+    echo "Chat Router Log: $AIO_SERVER_DIR/chat_router.log"
     echo "Nginx Access Log: /var/log/nginx/access.log"
     echo "Nginx Error Log: /var/log/nginx/error.log"
     echo
     echo "=== Management Commands ==="
     echo "Stop services: ./stop_aio_pod.sh"
-    echo "Restart nginx: systemctl restart nginx"
+    
+    # Show appropriate nginx commands based on platform
+    if command -v systemctl &> /dev/null; then
+        echo "Restart nginx: systemctl restart nginx"
+    elif command -v nginx &> /dev/null; then
+        echo "Reload nginx: sudo nginx -s reload"
+        echo "Stop nginx: sudo nginx -s stop"
+    fi
+    
     echo "View file server logs: tail -f $AIO_SERVER_DIR/file_server.log"
     echo "View exec server logs: tail -f $AIO_SERVER_DIR/exec_server.log"
+    echo "View chat router logs: tail -f $AIO_SERVER_DIR/chat_router.log"
     echo
     echo "=== API Endpoints ==="
     echo "Health Check: https://mcp.aio2030.fun/health"
     echo "File Upload: https://mcp.aio2030.fun/api/v1/upload/{type}"
     echo "File Download: https://mcp.aio2030.fun/api/v1/?type={type}&filename={filename}"
     echo "MCP Execute: https://mcp.aio2030.fun/api/v1/mcp/{filename}"
+    echo "Chat Completions: https://webchat.aio2030.fun/v1/chat/completions"
+    echo "List Models: https://webchat.aio2030.fun/v1/models"
+}
+
+# Check OpenClaw Gateway configuration
+check_gateway_config() {
+    print_info "Checking OpenClaw Gateway configuration..."
+    
+    local config_missing=false
+    
+    # Check if Gateway host is configured
+    if [[ "$OPENCLAW_GATEWAY_HOST" == "127.0.0.1" ]]; then
+        print_info "  Gateway Host: $OPENCLAW_GATEWAY_HOST (local)"
+    else
+        print_info "  Gateway Host: $OPENCLAW_GATEWAY_HOST"
+    fi
+    
+    # Check if Gateway port is configured
+    if [[ "$OPENCLAW_GATEWAY_PORT" == "18789" ]]; then
+        print_info "  Gateway Port: $OPENCLAW_GATEWAY_PORT (default)"
+    else
+        print_info "  Gateway Port: $OPENCLAW_GATEWAY_PORT"
+    fi
+    
+    # Check if Gateway token is configured (without showing the actual token)
+    if [[ -z "$OPENCLAW_GATEWAY_TOKEN" || "$OPENCLAW_GATEWAY_TOKEN" == "sk-lm-gyXsWZIS:opqYGydrY8dwynxrZNT6" ]]; then
+        print_warning "  Gateway Token: 使用默认值 (建议配置实际的 Token)"
+        config_missing=true
+    else
+        print_info "  Gateway Token: ${OPENCLAW_GATEWAY_TOKEN:0:15}... (已配置)"
+    fi
+    
+    # Check default agent
+    print_info "  Default Agent: $OPENCLAW_DEFAULT_AGENT"
+    
+    # Check Chat Router config
+    print_info "  Chat Router Port: $CHAT_ROUTER_PORT"
+    
+    # Display configuration tips if needed
+    if [[ "$config_missing" == true ]]; then
+        echo
+        print_warning "===== OpenClaw Gateway 配置提示 ====="
+        print_info "Chat Router 需要连接到 OpenClaw Gateway 才能正常工作"
+        print_info ""
+        print_info "请在 export_env_local.sh 中配置以下环境变量："
+        print_info ""
+        echo "  # OpenClaw Gateway 配置"
+        echo "  export OPENCLAW_GATEWAY_HOST=\"127.0.0.1\"          # Gateway 地址"
+        echo "  export OPENCLAW_GATEWAY_PORT=\"18789\"              # Gateway 端口"
+        echo "  export OPENCLAW_GATEWAY_TOKEN=\"your-token-here\"   # Gateway 认证 Token"
+        echo "  export OPENCLAW_DEFAULT_AGENT=\"main\"              # 默认 Agent ID"
+        echo "  export CHAT_ROUTER_PORT=\"8002\"                    # Chat Router 端口"
+        print_info ""
+        print_info "配置文件位置: $WORKSPACE_ROOT/export_env_local.sh"
+        print_info ""
+        print_info "如果还没有此文件，可以创建："
+        echo "  cat > export_env_local.sh << 'EOF'"
+        echo "  #!/bin/bash"
+        echo "  # OpenClaw Gateway 配置"
+        echo "  export OPENCLAW_GATEWAY_HOST=\"127.0.0.1\""
+        echo "  export OPENCLAW_GATEWAY_PORT=\"18789\""
+        echo "  export OPENCLAW_GATEWAY_TOKEN=\"your-actual-token\""
+        echo "  export OPENCLAW_DEFAULT_AGENT=\"main\""
+        echo "  export CHAT_ROUTER_PORT=\"8002\""
+        echo "  EOF"
+        echo "  chmod +x export_env_local.sh"
+        print_info ""
+        print_warning "配置后请重新运行: ./start_aio_pod.sh"
+        echo "=========================================="
+        echo
+        
+        # Ask if user wants to continue
+        read -p "是否继续启动服务? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_info "启动已取消，请配置后重试"
+            exit 0
+        fi
+    else
+        print_success "OpenClaw Gateway 配置已完成"
+    fi
 }
 
 # Load environment variables
@@ -338,9 +531,11 @@ main() {
     print_info "Workspace: $WORKSPACE_ROOT"
     print_info "File Server Port: $FILE_SERVER_PORT"
     print_info "Exec Server Port: $EXEC_SERVER_PORT"
+    print_info "Chat Router Port: $CHAT_ROUTER_PORT"
     echo
     
     load_environment
+    check_gateway_config
     check_ports
     kill_existing_processes
     setup_conda
@@ -348,6 +543,7 @@ main() {
     create_directories
     start_file_server
     start_exec_server
+    start_chat_router
     wait_for_servers
     test_endpoints
     display_status

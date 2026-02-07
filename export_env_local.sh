@@ -1,53 +1,46 @@
 #!/bin/bash
 
-# PixelMug MCP Service 环境变量模板
-# 复制此文件为 export_env_local.sh 并填入您的真实配置
-
 # =============================================================================
-# 必需的环境变量 - 必须配置
+# AIO-Pod 本地环境配置文件
+# 由配置向导自动生成于: 2026年 2月 7日 星期六 15时34分44秒 CST
 # =============================================================================
 
-# IoT角色ARN - 用于STS临时凭证申请
-# 格式: qcs::cam::uin/{UIN}:roleName/{角色名称}
-# 获取方式: 腾讯云控制台 -> 访问管理 -> 角色 -> 选择角色 -> 复制角色ARN
-export IOT_ROLE_ARN="qcs::cam::uin/100043941809:roleName/alaya_mcp"
-
 # =============================================================================
-# 腾讯云访问凭证 - 必须配置
+# OpenClaw Gateway 配置 - Chat Router 服务需要
 # =============================================================================
 
-# 推荐使用子账号密钥，比主账号密钥更安全
-# 获取方式: 腾讯云控制台 -> 访问管理 -> API密钥管理
-export TC_SECRET_ID="AKIDNYeZHl26wZ7TcXGm6D6oJbfWAbonZ7RX"
-export TC_SECRET_KEY="we9QZXJsEMGxQgkbGiwxkMkurgIhsqb8"
+# OpenClaw Gateway 地址
+export OPENCLAW_GATEWAY_HOST="127.0.0.1"
+
+# OpenClaw Gateway 端口
+export OPENCLAW_GATEWAY_PORT="18789"
+
+# OpenClaw Gateway 认证 Token
+export OPENCLAW_GATEWAY_TOKEN="sk-lm-gyXsWZIS:opqYGydrY8dwynxrZNT6"
+
+# 默认 Agent ID
+export OPENCLAW_DEFAULT_AGENT="main"
+
+# Chat Router 服务端口
+export CHAT_ROUTER_PORT="8002"
 
 # =============================================================================
-# COS对象存储配置 - 可选，如果使用COS功能需要配置
+# 腾讯云配置 - 根据需要配置
 # =============================================================================
 
-# COS存储桶拥有者UIN - 拥有COS存储桶的腾讯云账号UIN
-# 获取方式: 腾讯云控制台 -> 账号信息 -> 主账号ID
-export COS_OWNER_UIN="100044493744"
+# IoT 角色 ARN
+export IOT_ROLE_ARN="${IOT_ROLE_ARN:-qcs::cam::uin/YOUR_UIN:roleName/YOUR_ROLE_NAME}"
 
-# COS存储桶名称 - 用于存储像素图片和GIF动画
-# 获取方式: 腾讯云控制台 -> 对象存储 -> 存储桶列表
-export COS_BUCKET_NAME="pixelmug-noaz-1375677805"
+# 腾讯云访问凭证
+export TC_SECRET_ID="${TC_SECRET_ID:-YOUR_SECRET_ID}"
+export TC_SECRET_KEY="${TC_SECRET_KEY:-YOUR_SECRET_KEY}"
 
-# COS地域 - 存储桶所在的地域
-# 常用地域: ap-guangzhou, ap-beijing, ap-shanghai
-export COS_REGION="ap-guangzhou"
+# COS 对象存储配置
+export COS_OWNER_UIN="${COS_OWNER_UIN:-YOUR_UIN}"
+export COS_BUCKET_NAME="${COS_BUCKET_NAME:-your-bucket-name}"
+export COS_REGION="${COS_REGION:-ap-guangzhou}"
+export COS_BUCKET="${COS_BUCKET:-pixelmug-assets}"
 
-# =============================================================================
-# 服务配置 - 可选，有默认值
-# =============================================================================
-
-# 默认地域 - 腾讯云服务默认地域
-export DEFAULT_REGION="ap-guangzhou"
-
-# COS存储桶名称（兼容旧版本）
-export COS_BUCKET="pixelmug-noaz-1375677805"
-
-# 日志级别 - DEBUG, INFO, WARNING, ERROR
-export LOG_LEVEL="INFO"
-
-echo "环境变量已加载，请确保已填入正确的配置值"
+# 通用配置
+export DEFAULT_REGION="${DEFAULT_REGION:-ap-guangzhou}"
+export LOG_LEVEL="${LOG_LEVEL:-INFO}"
