@@ -280,18 +280,50 @@ start_chat_router() {
     
     cd "$AIO_SERVER_DIR"
     
-    # Check if chat_router_server.py exists
-    if [[ -f "chat_router_server.py" ]]; then
-        # Use python3 from conda environment (which should be activated)
-        nohup python3 chat_router_server.py > chat_router.log 2>&1 &
-        
-        CHAT_ROUTER_PID=$!
-        echo $CHAT_ROUTER_PID > chat_router.pid
-        
-        print_success "Chat router server started (PID: $CHAT_ROUTER_PID)"
-    else
+    if [[ ! -f "chat_router_server.py" ]]; then
         print_warning "chat_router_server.py not found, skipping chat router server"
+        return
     fi
+    
+    # 使用当前已激活的 conda 环境中的 Python（确保有 uvicorn）
+    local python_cmd="python3"
+    if [[ -n "$CONDA_PREFIX" ]]; then
+        python_cmd="$CONDA_PREFIX/bin/python3"
+        if [[ ! -x "$python_cmd" ]]; then
+            python_cmd="python3"
+        fi
+    fi
+    
+    # 启动前检查 uvicorn 是否可用
+    if ! $python_cmd -c "import uvicorn" 2>/dev/null; then
+        print_warning "当前 Python 环境缺少 uvicorn，尝试使用 aiopod 环境..."
+        if [[ -n "$CONDA_PREFIX" ]]; then
+            python_cmd="$CONDA_PREFIX/bin/python3"
+        fi
+        for conda_base in "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/conda" "/opt/conda" "/opt/miniconda3" "/opt/anaconda3"; do
+            if [[ -x "$conda_base/envs/aiopod/bin/python3" ]]; then
+                python_cmd="$conda_base/envs/aiopod/bin/python3"
+                if $python_cmd -c "import uvicorn" 2>/dev/null; then
+                    print_success "使用 aiopod 环境: $python_cmd"
+                    break
+                fi
+            fi
+        done
+    fi
+    
+    if ! $python_cmd -c "import uvicorn" 2>/dev/null; then
+        print_error "Chat Router 启动失败: 未找到已安装 uvicorn 的 Python"
+        print_info "请先执行: conda activate aiopod && pip install -r aio_server/requirements.txt"
+        print_info "或直接在本脚本中已激活 aiopod 的情况下重新运行 ./start_aio_pod.sh"
+        return
+    fi
+    
+    nohup $python_cmd chat_router_server.py > chat_router.log 2>&1 &
+    
+    CHAT_ROUTER_PID=$!
+    echo $CHAT_ROUTER_PID > chat_router.pid
+    
+    print_success "Chat router server started (PID: $CHAT_ROUTER_PID)"
 }
 
 # Wait for servers to be ready

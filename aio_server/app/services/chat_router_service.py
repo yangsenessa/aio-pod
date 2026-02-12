@@ -59,7 +59,7 @@ class ChatRouterService:
                     "client": {
                         "id": "webchat",
                         "version": "1.0.0",
-                        "platform": "python",
+                        "platform": "aio2030",
                         "mode": "webchat",
                     },
                     "role": "operator",
