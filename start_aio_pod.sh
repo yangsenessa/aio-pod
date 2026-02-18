@@ -424,42 +424,36 @@ display_status() {
     echo
     print_success "AIO-Pod services started successfully!"
     echo
-    echo "=== Service Status ==="
-    echo "File Server: http://localhost:$FILE_SERVER_PORT"
-    echo "Exec Server: http://localhost:$EXEC_SERVER_PORT"
-    echo "Chat Router: http://localhost:$CHAT_ROUTER_PORT"
-    echo "Nginx Proxy: https://mcp.aio2030.fun"
-    echo "Nginx Proxy (Chat): https://webchat.aio2030.fun"
+    echo -e "${BLUE}=== Service Status ===${NC}"
+    echo "  File Server:  http://localhost:$FILE_SERVER_PORT"
+    echo "  Exec Server:  http://localhost:$EXEC_SERVER_PORT"
+    echo "  Chat Router:  http://localhost:$CHAT_ROUTER_PORT"
+    echo "  MCP (nginx):  https://mcp.aio2030.fun"
+    echo "  Chat (nginx): https://webchat.aio2030.fun"
     echo
-    echo "=== Log Files ==="
-    echo "File Server Log: $AIO_SERVER_DIR/file_server.log"
-    echo "Exec Server Log: $AIO_SERVER_DIR/exec_server.log"
-    echo "Chat Router Log: $AIO_SERVER_DIR/chat_router.log"
-    echo "Nginx Access Log: /var/log/nginx/access.log"
-    echo "Nginx Error Log: /var/log/nginx/error.log"
+    echo -e "${BLUE}=== Log Files ===${NC}"
+    echo "  File Server:  $AIO_SERVER_DIR/file_server.log"
+    echo "  Exec Server:  $AIO_SERVER_DIR/exec_server.log"
+    echo "  Chat Router:  $AIO_SERVER_DIR/chat_router.log"
+    echo "  Nginx:        /var/log/nginx/access.log, /var/log/nginx/error.log"
     echo
-    echo "=== Management Commands ==="
-    echo "Stop services: ./stop_aio_pod.sh"
-    
-    # Show appropriate nginx commands based on platform
+    echo -e "${BLUE}=== API Endpoints (生产域名) ===${NC}"
+    echo "  Health:         GET  https://mcp.aio2030.fun/health"
+    echo "  File Upload:    POST https://mcp.aio2030.fun/upload/{type}     (type: agent|mcp|img|video, body: multipart file)"
+    echo "  File Download:  GET  https://mcp.aio2030.fun/?type={type}&filename={filename}"
+    echo "  MCP Execute:    POST https://mcp.aio2030.fun/api/v1/rpc/mcp/{filename}  (body: JSON-RPC)"
+    echo "  List Models:    GET  https://webchat.aio2030.fun/v1/models"
+    echo "  Chat Completions: POST https://webchat.aio2030.fun/v1/chat/completions"
+    echo
+    echo -e "${BLUE}=== Management ===${NC}"
+    echo "  Stop:   ./stop_aio_pod.sh"
     if command -v systemctl &> /dev/null; then
-        echo "Restart nginx: systemctl restart nginx"
+        echo "  Nginx:  systemctl restart nginx"
     elif command -v nginx &> /dev/null; then
-        echo "Reload nginx: sudo nginx -s reload"
-        echo "Stop nginx: sudo nginx -s stop"
+        echo "  Nginx:  sudo nginx -s reload"
     fi
-    
-    echo "View file server logs: tail -f $AIO_SERVER_DIR/file_server.log"
-    echo "View exec server logs: tail -f $AIO_SERVER_DIR/exec_server.log"
-    echo "View chat router logs: tail -f $AIO_SERVER_DIR/chat_router.log"
+    echo "  Logs:   tail -f $AIO_SERVER_DIR/file_server.log"
     echo
-    echo "=== API Endpoints ==="
-    echo "Health Check: https://mcp.aio2030.fun/health"
-    echo "File Upload: https://mcp.aio2030.fun/api/v1/upload/{type}"
-    echo "File Download: https://mcp.aio2030.fun/api/v1/?type={type}&filename={filename}"
-    echo "MCP Execute: https://mcp.aio2030.fun/api/v1/mcp/{filename}"
-    echo "Chat Completions: https://webchat.aio2030.fun/v1/chat/completions"
-    echo "List Models: https://webchat.aio2030.fun/v1/models"
 }
 
 # Check OpenClaw Gateway configuration
