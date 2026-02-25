@@ -25,6 +25,13 @@ export OPENCLAW_GATEWAY_TOKEN="your-actual-token-here"
 # 默认 Agent ID (默认 main)
 export OPENCLAW_DEFAULT_AGENT="main"
 
+# 是否使用 Gateway HTTP Chat Completions API（默认 true，推荐，无需 WebSocket/Origin）
+# 设为 false 时使用 WebSocket 协议，需配置 allowedOrigins 与 device 签名
+# export OPENCLAW_USE_HTTP_API="true"
+
+# WebSocket Origin（可选）仅当 OPENCLAW_USE_HTTP_API=false 时需与 gateway.controlUi.allowedOrigins 一致
+# export OPENCLAW_WS_ORIGIN="http://127.0.0.1:18789"
+
 # Chat Router 服务端口 (默认 8002)
 export CHAT_ROUTER_PORT="8002"
 
