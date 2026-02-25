@@ -32,7 +32,11 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = Field(None, ge=1, description="最大token数")
     presence_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0, description="存在惩罚")
     frequency_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0, description="频率惩罚")
-    user: Optional[str] = Field(None, description="用户标识")
+    user: Optional[str] = Field(
+        None,
+        description="OpenAI 用户标识。若传入，Gateway 会据此生成稳定 session key，同用户多次请求可共享同一 agent 会话（Session behavior）。"
+    )
+    user_nickname: Optional[str] = Field(None, description="用户昵称，可选透传到 Gateway")
 
 
 class ModelInfo(BaseModel):
@@ -135,6 +139,18 @@ async def chat_completions(
     支持流式和非流式响应
     """
     try:
+        # 会话保持：只有稳定的 user 才能让 Gateway 派生同一 session key
+        logger.info(
+            "chat/completions request: model=%s stream=%s user=%s",
+            chat_request.model,
+            chat_request.stream,
+            repr(chat_request.user) if chat_request.user is not None else "(absent)",
+        )
+        if chat_request.user is None or chat_request.user.strip() == "":
+            logger.warning(
+                "chat/completions: no stable user provided — each request will use a new session; "
+                "frontend should send a persistent user (e.g. userId or localStorage clientId), not anonymous-${Date.now()}"
+            )
         # 转换消息格式
         messages = [
             {
@@ -143,7 +159,16 @@ async def chat_completions(
             }
             for msg in chat_request.messages
         ]
-        
+        # 将 user_nickname 注入为 system 消息，使 Gateway/agent 能在上下文中看到并正确称呼用户
+        # （OpenClaw 文档未定义 user_nickname 字段，仅透传 body 无法被 agent 理解）
+        nickname = (chat_request.user_nickname or "").strip()
+        if nickname:
+            system_hint = {
+                "role": "system",
+                "content": f"当前对话用户的昵称是：{nickname}。请在回复中可自然使用该昵称称呼用户。"
+            }
+            messages = [system_hint] + messages
+
         # 流式响应
         if chat_request.stream:
             logger.info(f"Processing streaming chat request for model: {chat_request.model}")
@@ -154,7 +179,9 @@ async def chat_completions(
                         messages=messages,
                         model=chat_request.model,
                         temperature=chat_request.temperature,
-                        max_tokens=chat_request.max_tokens
+                        max_tokens=chat_request.max_tokens,
+                        user=chat_request.user,
+                        user_nickname=chat_request.user_nickname,
                     ):
                         yield chunk
                 except Exception as e:
@@ -181,7 +208,9 @@ async def chat_completions(
                 messages=messages,
                 model=chat_request.model,
                 temperature=chat_request.temperature,
-                max_tokens=chat_request.max_tokens
+                max_tokens=chat_request.max_tokens,
+                user=chat_request.user,
+                user_nickname=chat_request.user_nickname,
             )
             
             return JSONResponse(
