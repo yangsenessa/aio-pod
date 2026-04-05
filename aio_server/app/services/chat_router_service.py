@@ -18,6 +18,8 @@ class ChatRouterService:
         self.gateway_port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789"))
         self.gateway_token = os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
         self.default_agent = os.getenv("OPENCLAW_DEFAULT_AGENT", "main")
+        # 优先使用 Gateway HTTP Chat Completions API（无需 WebSocket/Origin/device 签名）
+        self.use_http_api = os.getenv("OPENCLAW_USE_HTTP_API", "true").lower() in ("1", "true", "yes")
         
         # 构建基础 URL
         self.base_url = f"http://{self.gateway_host}:{self.gateway_port}"
@@ -25,7 +27,9 @@ class ChatRouterService:
         # WebSocket 连接池（用于复用连接）
         self._ws_connections = {}
         
-        logger.info(f"ChatRouterService initialized with gateway: {self.base_url}")
+        logger.info(
+            f"ChatRouterService initialized with gateway: {self.base_url} (transport={'HTTP' if self.use_http_api else 'WebSocket'})"
+        )
     
     async def check_gateway_health(self) -> bool:
         """检查 Gateway 健康状态"""
@@ -44,8 +48,12 @@ class ChatRouterService:
             import websockets
             
             ws_url = f"ws://{self.gateway_host}:{self.gateway_port}"
-            logger.info(f"Connecting to WebSocket: {ws_url}")
-            ws = await websockets.connect(ws_url)
+            # Origin 必须与 Gateway openclaw.json 中 gateway.controlUi.allowedOrigins 一致
+            origin = os.getenv("OPENCLAW_WS_ORIGIN") or f"http://{self.gateway_host}:{self.gateway_port}"
+            logger.info(f"Connecting to WebSocket: {ws_url} (Origin: {origin})")
+            ws = await websockets.connect(ws_url,
+                                          origin=origin,
+                                          extra_headers={"User-Agent": "webchat/1.0.0 (aio2030)","Origin": origin,})
             
             # 发送 connect 请求（参考原始脚本的实现）
             connect_id = f"connect-{int(time.time() * 1000)}"
@@ -115,6 +123,85 @@ class ChatRouterService:
             logger.error(traceback.format_exc())
             return None
     
+    def _gateway_headers(self) -> Dict[str, str]:
+        """Gateway HTTP API 请求头（Bearer Token）"""
+        headers = {"Content-Type": "application/json"}
+        if self.gateway_token:
+            headers["Authorization"] = f"Bearer {self.gateway_token}"
+        return headers
+    
+    async def _chat_completion_http(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "openclaw:main",
+        stream: bool = False,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        通过 Gateway HTTP Chat Completions API 请求（无需 WebSocket/Origin/device）。
+        见 https://docs.openclaw.ai/gateway/openai-http-api
+        """
+        url = f"{self.base_url}/v1/chat/completions"
+        body: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": stream,
+        }
+        if kwargs.get("temperature") is not None:
+            body["temperature"] = kwargs["temperature"]
+        if kwargs.get("max_tokens") is not None:
+            body["max_tokens"] = kwargs["max_tokens"]
+        user_val = kwargs.get("user")
+        if user_val is not None and str(user_val).strip():
+            body["user"] = user_val
+        if kwargs.get("user_nickname") is not None:
+            body["user_nickname"] = kwargs["user_nickname"]
+        async with httpx.AsyncClient(trust_env=False, timeout=90.0) as client:
+            response = await client.post(
+                url,
+                headers=self._gateway_headers(),
+                json=body,
+            )
+        if response.status_code != 200:
+            raise Exception(
+                f"Gateway HTTP API error: {response.status_code} {response.text[:500]}"
+            )
+        return response.json()
+    
+    async def _chat_completion_stream_http(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "openclaw:main",
+        **kwargs
+    ) -> AsyncIterator[str]:
+        """通过 Gateway HTTP API 流式请求，原样转发 SSE。"""
+        url = f"{self.base_url}/v1/chat/completions"
+        body: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+        }
+        user_val = kwargs.get("user")
+        if user_val is not None and str(user_val).strip():
+            body["user"] = user_val
+        if kwargs.get("user_nickname") is not None:
+            body["user_nickname"] = kwargs["user_nickname"]
+        async with httpx.AsyncClient(trust_env=False, timeout=90.0) as client:
+            async with client.stream(
+                "POST",
+                url,
+                headers=self._gateway_headers(),
+                json=body,
+            ) as response:
+                if response.status_code != 200:
+                    text = await response.aread()
+                    raise Exception(
+                        f"Gateway HTTP API error: {response.status_code} {text[:500].decode(errors='replace')}"
+                    )
+                async for chunk in response.aiter_text():
+                    if chunk:
+                        yield chunk
+    
     async def chat_completion(
         self,
         messages: List[Dict[str, str]],
@@ -137,6 +224,12 @@ class ChatRouterService:
         Returns:
             OpenAI 格式的响应
         """
+        if self.use_http_api and not stream:
+            return await self._chat_completion_http(
+                messages, model=model, stream=False,
+                temperature=temperature, max_tokens=max_tokens, **kwargs
+            )
+        
         # 提取 agent_id
         agent_id = self.default_agent
         if model.startswith("openclaw:"):
@@ -158,8 +251,10 @@ class ChatRouterService:
             raise Exception("Failed to connect to Gateway")
         
         try:
-            # 构建 sessionKey
-            session_key = f"agent:{agent_id}:main"
+            # 构建 sessionKey：有稳定 user 时用其保持会话，否则用默认（每次新 session）
+            user_str = kwargs.get("user")
+            user_str = user_str.strip() if isinstance(user_str, str) else None
+            session_key = f"agent:{agent_id}:user:{user_str}" if user_str else f"agent:{agent_id}:main"
             
             # 发送 chat.send 请求
             request_id = f"chat-{int(time.time() * 1000)}"
@@ -287,6 +382,11 @@ class ChatRouterService:
         Yields:
             SSE 格式的流式响应
         """
+        if self.use_http_api:
+            async for chunk in self._chat_completion_stream_http(messages, model=model, **kwargs):
+                yield chunk
+            return
+        
         # 提取 agent_id
         agent_id = self.default_agent
         if model.startswith("openclaw:"):
@@ -308,8 +408,10 @@ class ChatRouterService:
             raise Exception("Failed to connect to Gateway")
         
         try:
-            # 构建 sessionKey
-            session_key = f"agent:{agent_id}:main"
+            # 构建 sessionKey：有稳定 user 时用其保持会话，否则用默认
+            user_str = kwargs.get("user")
+            user_str = user_str.strip() if isinstance(user_str, str) else None
+            session_key = f"agent:{agent_id}:user:{user_str}" if user_str else f"agent:{agent_id}:main"
             
             # 发送 chat.send 请求
             request_id = f"chat-{int(time.time() * 1000)}"
