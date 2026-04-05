@@ -21,6 +21,9 @@ export OPENCLAW_GATEWAY_TOKEN="sk-lm-gyXsWZIS:opqYGydrY8dwynxrZNT6"
 # 默认 Agent ID
 export OPENCLAW_DEFAULT_AGENT="main"
 
+# 使用 Gateway HTTP Chat Completions API（推荐，无需 WebSocket/Origin）
+export OPENCLAW_USE_HTTP_API="true"
+
 # Chat Router 服务端口
 export CHAT_ROUTER_PORT="8002"
 
