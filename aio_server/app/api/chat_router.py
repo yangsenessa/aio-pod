@@ -53,8 +53,17 @@ class ModelsResponse(BaseModel):
     data: List[ModelInfo]
 
 
+# CORS 头：用于 /v1/chat/completions 及 OPTIONS 预检
+CHAT_CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "https://bjlli-qiaaa-aaaau-ab3ha-cai.icp0.io",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Max-Age": "86400",
+}
+
+
 def get_cors_headers(request: Request) -> dict:
-    """获取 CORS 头"""
+    """获取 CORS 头（用于其他路由）"""
     origin = request.headers.get("origin", "*")
     return {
         "Access-Control-Allow-Origin": origin,
@@ -66,18 +75,9 @@ def get_cors_headers(request: Request) -> dict:
 
 @router.options("/{path:path}")
 async def options_handler(request: Request, path: str):
-    """处理 OPTIONS 请求"""
+    """处理 OPTIONS 预检（含 /v1/chat/completions）"""
     from fastapi.responses import Response
-    origin = request.headers.get("origin", "*")
-    return Response(
-        headers={
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, X-Requested-With",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Max-Age": "3600"
-        }
-    )
+    return Response(headers=CHAT_CORS_HEADERS)
 
 
 @router.get("/health")
@@ -197,7 +197,7 @@ async def chat_completions(
             return StreamingResponse(
                 generate(),
                 media_type="text/event-stream",
-                headers=get_cors_headers(request)
+                headers=CHAT_CORS_HEADERS
             )
         
         # 非流式响应
@@ -215,7 +215,7 @@ async def chat_completions(
             
             return JSONResponse(
                 content=response,
-                headers=get_cors_headers(request)
+                headers=CHAT_CORS_HEADERS
             )
     
     except ValueError as e:
@@ -228,7 +228,7 @@ async def chat_completions(
                     "type": "invalid_request_error"
                 }
             },
-            headers=get_cors_headers(request)
+            headers=CHAT_CORS_HEADERS
         )
     
     except Exception as e:
@@ -241,5 +241,5 @@ async def chat_completions(
                     "type": "server_error"
                 }
             },
-            headers=get_cors_headers(request)
+            headers=CHAT_CORS_HEADERS
         )
