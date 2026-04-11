@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-BASE_URL="${AIO_SERVICE_URL:-http://localhost:8000}"
+BASE_URL="${AIO_SERVICE_URL:-https://mcp.aio2030.fun}"
 RPC_TIMEOUT="${RPC_TIMEOUT:-120}"
 MCP_FILENAME="${MCP_FILENAME:-mcp_pixelmug.bin}"
 
