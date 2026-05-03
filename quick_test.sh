@@ -12,8 +12,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration
-DOMAIN="mcp.aio2030.fun"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/domain_constants.sh
+source "${SCRIPT_DIR}/scripts/domain_constants.sh"
+DOMAIN="$MCP_DOMAIN"
 FILE_SERVER_PORT=8001
 EXEC_SERVER_PORT=8000
 
@@ -164,7 +166,7 @@ display_status() {
     echo "Check nginx: systemctl status nginx"
     echo "Check logs: tail -f /var/log/nginx/error.log"
     echo "Test SSL: openssl s_client -connect $DOMAIN:443"
-    echo "Renew cert: certbot renew"
+    echo "Origin TLS: sudo ./replace_ssl_cert.sh（Cloudflare Origin PEM → ${CF_ORIGIN_CERT}）"
 }
 
 # Main execution

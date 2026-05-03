@@ -12,11 +12,12 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration
-DOMAIN="mcp.aio2030.fun"
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$SCRIPT_DIR"
+# shellcheck source=scripts/domain_constants.sh
+source "${SCRIPT_DIR}/scripts/domain_constants.sh"
+DOMAIN="$MCP_DOMAIN"
 
 # Print colored text
 print_info() {
@@ -63,22 +64,20 @@ check_file() {
 check_nginx_conf() {
     print_info "Checking nginx configuration..."
     
-    if [[ -f "nginx.conf" ]]; then
-        # Check if domain is configured
-        if grep -q "$DOMAIN" nginx.conf; then
-            print_success "nginx.conf exists and contains domain $DOMAIN"
+    local nginx_src="nginx_ssl.conf"
+    if [[ -f "$nginx_src" ]]; then
+        if grep -q "$DOMAIN" "$nginx_src"; then
+            print_success "$nginx_src contains domain $DOMAIN"
         else
-            print_warning "nginx.conf exists but domain $DOMAIN not found"
+            print_warning "$nginx_src exists but domain $DOMAIN not found"
         fi
-        
-        # Check SSL configuration
-        if grep -q "ssl_certificate" nginx.conf; then
-            print_success "SSL configuration found in nginx.conf"
+        if grep -q "ssl_certificate" "$nginx_src"; then
+            print_success "SSL configuration found in $nginx_src"
         else
-            print_warning "SSL configuration not found in nginx.conf"
+            print_warning "SSL configuration not found in $nginx_src"
         fi
     else
-        print_error "nginx.conf is missing"
+        print_error "$nginx_src is missing"
         return 1
     fi
 }
@@ -189,7 +188,7 @@ display_summary() {
     echo "Workspace: $WORKSPACE_ROOT"
     echo
     echo "=== Required Files ==="
-    echo "✓ nginx.conf - Nginx configuration"
+    echo "✓ nginx_ssl.conf - Nginx configuration (MCP)"
     echo "✓ setup_nginx_ssl.sh - SSL setup script"
     echo "✓ start_aio_pod.sh - Service start script"
     echo "✓ stop_aio_pod.sh - Service stop script"
@@ -218,7 +217,7 @@ main() {
     echo
     
     # Check all required files
-    check_file "nginx.conf" "Nginx configuration file"
+    check_file "nginx_ssl.conf" "Nginx configuration file"
     check_file "setup_nginx_ssl.sh" "SSL setup script" true
     check_file "start_aio_pod.sh" "Service start script" true
     check_file "stop_aio_pod.sh" "Service stop script" true

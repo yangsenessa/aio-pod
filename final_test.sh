@@ -1,5 +1,9 @@
 #!/bin/bash
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/domain_constants.sh
+source "${ROOT}/scripts/domain_constants.sh"
+
 echo "🔍 AIO-Pod HTTPS 最终测试"
 echo "=========================="
 
@@ -62,18 +66,18 @@ echo "test content" > test.txt
 echo ""
 echo "🌐 域名解析测试"
 echo "----------------"
-test_endpoint "域名解析" "https://mcp.aio2030.fun/health"
+test_endpoint "域名解析" "${MCP_BASE_URL}/health"
 
 echo ""
 echo "🔒 SSL证书测试"
 echo "--------------"
-test_endpoint "SSL连接" "https://mcp.aio2030.fun/health"
+test_endpoint "SSL连接" "${MCP_BASE_URL}/health"
 
 echo ""
 echo "🔄 HTTP到HTTPS重定向测试"
 echo "------------------------"
 echo -n "测试HTTP重定向... "
-redirect_status=$(curl -s -I http://mcp.aio2030.fun/health | grep -o "301")
+redirect_status=$(curl -s -I "http://${MCP_DOMAIN}/health" | grep -o "301")
 if [ "$redirect_status" = "301" ]; then
     echo -e "${GREEN}✅ 成功${NC}"
 else
@@ -83,17 +87,17 @@ fi
 echo ""
 echo "📤 文件上传测试 (原始路径)"
 echo "---------------------------"
-test_file_upload "文件上传" "https://mcp.aio2030.fun/upload/mcp"
+test_file_upload "文件上传" "${MCP_BASE_URL}/upload/mcp"
 
 echo ""
 echo "🤖 RPC调用测试"
 echo "--------------"
-test_endpoint "RPC调用" "https://mcp.aio2030.fun/api/v1/rpc/mcp/test.bin" "POST" '{"jsonrpc":"2.0","method":"test","params":{},"id":1}' "Content-Type: application/json"
+test_endpoint "RPC调用" "${MCP_BASE_URL}/api/v1/rpc/mcp/test.bin" "POST" '{"jsonrpc":"2.0","method":"test","params":{},"id":1}' "Content-Type: application/json"
 
 echo ""
 echo "💚 健康检查测试"
 echo "--------------"
-test_endpoint "健康检查" "https://mcp.aio2030.fun/health"
+test_endpoint "健康检查" "${MCP_BASE_URL}/health"
 
 echo ""
 echo "🔧 服务状态检查"
@@ -123,14 +127,14 @@ echo ""
 echo "🔐 SSL证书检查"
 echo "--------------"
 echo -n "证书文件... "
-if [ -f "/etc/letsencrypt/live/mcp.aio2030.fun/fullchain.pem" ]; then
+if [ -f "${CF_ORIGIN_CERT}" ]; then
     echo -e "${GREEN}✅ 存在${NC}"
 else
     echo -e "${RED}❌ 不存在${NC}"
 fi
 
 echo -n "私钥文件... "
-if [ -f "/etc/letsencrypt/live/mcp.aio2030.fun/privkey.pem" ]; then
+if [ -f "${CF_ORIGIN_KEY}" ]; then
     echo -e "${GREEN}✅ 存在${NC}"
 else
     echo -e "${RED}❌ 不存在${NC}"
@@ -148,7 +152,7 @@ echo "✅ HTTP到HTTPS重定向正常"
 echo "✅ 健康检查正常"
 echo ""
 echo "🎉 AIO-Pod HTTPS部署完成！"
-echo "🌐 访问地址: https://mcp.aio2030.fun"
+echo "🌐 访问地址: ${MCP_BASE_URL}"
 echo "📝 请参考 DEPLOYMENT_SUMMARY.md 了解详细配置"
 echo "🔧 请参考 FRONTEND_MIGRATION_GUIDE.md 进行前端迁移"
 

@@ -1,5 +1,9 @@
 #!/bin/bash
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/domain_constants.sh
+source "${ROOT}/scripts/domain_constants.sh"
+
 echo "🔍 AIO-Pod 快速状态检查"
 echo "========================"
 
@@ -36,16 +40,16 @@ check_port() {
 
 check_ssl() {
     echo -n "检查SSL证书... "
-    if [ -f "/etc/letsencrypt/live/mcp.aio2030.fun/fullchain.pem" ]; then
-        echo -e "${GREEN}✅ 有效${NC}"
+    if [ -f "${CF_ORIGIN_CERT}" ] && [ -f "${CF_ORIGIN_KEY}" ]; then
+        echo -e "${GREEN}✅ Origin 证书文件存在${NC}"
     else
-        echo -e "${RED}❌ 无效${NC}"
+        echo -e "${RED}❌ 缺少 ${CF_ORIGIN_CERT} 或 ${CF_ORIGIN_KEY}${NC}"
     fi
 }
 
 check_health() {
     echo -n "检查健康状态... "
-    response=$(curl -s -k https://mcp.aio2030.fun/health 2>/dev/null)
+    response=$(curl -s -k "${MCP_BASE_URL}/health" 2>/dev/null)
     if [[ $response == *"healthy"* ]]; then
         echo -e "${GREEN}✅ 正常${NC}"
     else
@@ -84,7 +88,7 @@ echo "test content" > test.txt 2>/dev/null
 
 # 快速API测试
 echo -n "测试文件上传... "
-upload_response=$(curl -s -k -X POST -F "file=@test.txt" https://mcp.aio2030.fun/upload/mcp 2>/dev/null)
+upload_response=$(curl -s -k -X POST -F "file=@test.txt" "${MCP_BASE_URL}/upload/mcp" 2>/dev/null)
 if [[ $upload_response == *"success"* ]]; then
     echo -e "${GREEN}✅ 正常${NC}"
 else
@@ -92,7 +96,7 @@ else
 fi
 
 echo -n "测试RPC调用... "
-rpc_response=$(curl -s -k -X POST https://mcp.aio2030.fun/api/v1/rpc/mcp/test.bin \
+rpc_response=$(curl -s -k -X POST "${MCP_BASE_URL}/api/v1/rpc/mcp/test.bin" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"test","params":{},"id":1}' 2>/dev/null)
 if [[ $rpc_response == *"jsonrpc"* ]]; then
@@ -107,10 +111,10 @@ rm -f test.txt 2>/dev/null
 echo ""
 echo "🌐 访问地址"
 echo "----------"
-echo "HTTPS: https://mcp.aio2030.fun"
-echo "健康检查: https://mcp.aio2030.fun/health"
-echo "文件上传: https://mcp.aio2030.fun/upload/{type}"
-echo "RPC调用: https://mcp.aio2030.fun/api/v1/rpc/{file_type}/{filename}"
+echo "HTTPS: ${MCP_BASE_URL}"
+echo "健康检查: ${MCP_BASE_URL}/health"
+echo "文件上传: ${MCP_BASE_URL}/upload/{type}"
+echo "RPC调用: ${MCP_BASE_URL}/api/v1/rpc/{file_type}/{filename}"
 
 echo ""
 echo "📝 管理命令"
@@ -118,7 +122,7 @@ echo "----------"
 echo "重启nginx: sudo systemctl restart nginx"
 echo "重启AIO-Pod: ./stop_aio_pod.sh && ./start_aio_pod.sh"
 echo "查看日志: sudo tail -f /var/log/nginx/error.log"
-echo "检查证书: sudo certbot certificates"
+echo "更新证书: sudo ./replace_ssl_cert.sh（Cloudflare Origin PEM 放入 certification/）"
 
 echo ""
 echo "✅ 检查完成！" 

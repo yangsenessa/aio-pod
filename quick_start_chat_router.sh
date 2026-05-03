@@ -90,14 +90,14 @@ echo "2. 测试服务："
 echo -e "   ${BLUE}python3 test_chat_router.py${NC}"
 echo -e "   ${YELLOW}测试日志将保存到: ./log/test_chat_router_<时间戳>.log${NC}"
 echo
-echo "3. 部署 Nginx 配置："
-echo -e "   ${BLUE}sudo cp nginx_webchat.conf /etc/nginx/sites-available/webchat.aio2030.fun.conf${NC}"
-echo -e "   ${BLUE}sudo ln -s /etc/nginx/sites-available/webchat.aio2030.fun.conf /etc/nginx/sites-enabled/${NC}"
+echo "3. 部署 Nginx 配置（源站使用 Cloudflare Origin 证书）："
+echo -e "   ${BLUE}sudo cp nginx_webchat.conf /etc/nginx/sites-available/webchat.univoices.club.conf${NC}"
+echo -e "   ${BLUE}sudo ln -sf /etc/nginx/sites-available/webchat.univoices.club.conf /etc/nginx/sites-enabled/${NC}"
 echo -e "   ${BLUE}sudo nginx -t${NC}"
 echo -e "   ${BLUE}sudo systemctl reload nginx${NC}"
 echo
 echo "4. 测试 HTTPS 访问："
-echo -e "   ${BLUE}curl https://webchat.aio2030.fun/health${NC}"
+echo -e "   ${BLUE}curl https://webchat.univoices.club/health${NC}"
 echo
 echo -e "${YELLOW}详细文档：${NC}"
 echo -e "   ${BLUE}CHAT_ROUTER_DEPLOYMENT.md${NC}"
