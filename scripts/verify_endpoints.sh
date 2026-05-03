@@ -39,8 +39,13 @@ red () { printf '\033[0;31m%s\033[0m\n' "$*"; }
 green () { printf '\033[0;32m%s\033[0m\n' "$*"; }
 yellow () { printf '\033[1;33m%s\033[0m\n' "$*"; }
 
-# 统一 curl：不走代理
-_curl() { curl --noproxy '*' "$@"; }
+# 统一 curl：不走代理。默认连接 20s、整次请求最长 180s（可用 CURL_CONNECT_TIMEOUT / CURL_MAX_TIME 覆盖），避免 Upload 等步骤无输出地挂死。
+_curl() {
+  curl --noproxy '*' \
+    --connect-timeout "${CURL_CONNECT_TIMEOUT:-20}" \
+    --max-time "${CURL_MAX_TIME:-180}" \
+    "$@"
+}
 
 check() {
     local name="$1"
@@ -49,7 +54,7 @@ check() {
     local data="$4"
     local expect="${5:-200}"
     local code
-    code=$(_curl -s -o "${VERIFY_RESP}" -w "%{http_code}" -X "$method" "$url" ${data:+ -d "$data"} ${data:+ -H "Content-Type: application/json"})
+    code=$(_curl -s -o "${VERIFY_RESP}" -w "%{http_code}" -X "$method" "$url" ${data:+ -d "$data"} ${data:+ -H "Content-Type: application/json"}) || code="000"
     if [[ "$code" == "$expect" ]]; then
         green "[OK] $name (HTTP $code)"
     else
@@ -70,7 +75,8 @@ if [[ ! -r "$UPLOAD_SRC" ]]; then
   UPLOAD_SRC="${VERIFY_RESP}.probe"
   printf 'aio-verify-probe\n' > "${UPLOAD_SRC}"
 fi
-upcode=$(_curl -s -o /dev/null -w "%{http_code}" -X POST "$MCP_BASE/upload/mcp" -F "file=@${UPLOAD_SRC}")
+printf '  → 正在请求 Upload: POST %s/upload/mcp …\n' "$MCP_BASE"
+upcode=$(_curl -s -o /dev/null -w "%{http_code}" -X POST "$MCP_BASE/upload/mcp" -F "file=@${UPLOAD_SRC}") || upcode="000"
 [[ "${UPLOAD_SRC}" == "${VERIFY_RESP}.probe" ]] && rm -f "${VERIFY_RESP}.probe" 2>/dev/null || true
 [[ "$upcode" == "200" ]] && green "[OK] Upload (POST) (HTTP $upcode)" || red "[FAIL] Upload (POST) (HTTP $upcode)"
 check "Download (GET)"   GET  "$MCP_BASE/?type=mcp&filename=test" ""  "200"
@@ -79,7 +85,7 @@ check "RPC MCP (POST)"   POST "$MCP_BASE/api/v1/rpc/mcp/nonexistent" '{"jsonrpc"
 echo ""
 echo "=== Chat (${WEBCHAT_DOMAIN}) ==="
 check "List Models"      GET  "$CHAT_BASE/v1/models" ""
-code=$(_curl -s -o "${CHAT_RESP}" -w "%{http_code}" -X POST "$CHAT_BASE/v1/chat/completions" -H "Content-Type: application/json" -d '{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}')
+code=$(_curl -s -o "${CHAT_RESP}" -w "%{http_code}" -X POST "$CHAT_BASE/v1/chat/completions" -H "Content-Type: application/json" -d '{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}') || code="000"
 if [[ "$code" == "200" ]]; then
     green "[OK] Chat Completions (HTTP 200)"
 elif [[ "$code" == "422" || "$code" == "500" ]]; then
