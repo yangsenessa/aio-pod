@@ -53,8 +53,12 @@ class NginxConfigSkill(BaseSkill):
         service_type = kwargs["service_type"]
         backend_port = kwargs["backend_port"]
         enable_ssl = kwargs.get("enable_ssl", False)
-        cert_path = kwargs.get("cert_path", f"/etc/letsencrypt/live/{domain}/fullchain.pem")
-        key_path = kwargs.get("key_path", f"/etc/letsencrypt/live/{domain}/privkey.pem")
+        cert_path = kwargs.get(
+            "cert_path", "/etc/ssl/cloudflare/univoices.origin.pem"
+        )
+        key_path = kwargs.get(
+            "key_path", "/etc/ssl/cloudflare/univoices.origin.key"
+        )
         max_body_size = kwargs.get("max_body_size", "100M")
         proxy_timeout = kwargs.get("proxy_timeout", 300)
         
@@ -139,7 +143,7 @@ def main():
     parser.add_argument(
         "--domain",
         required=True,
-        help="Domain name (e.g., webchat.aio2030.fun)"
+        help="Domain name (e.g., webchat.univoices.club)"
     )
     
     parser.add_argument(
@@ -164,12 +168,12 @@ def main():
     
     parser.add_argument(
         "--cert-path",
-        help="SSL certificate path (default: /etc/letsencrypt/live/{domain}/fullchain.pem)"
+        help="SSL certificate path (default: /etc/ssl/cloudflare/univoices.origin.pem)"
     )
     
     parser.add_argument(
         "--key-path",
-        help="SSL key path (default: /etc/letsencrypt/live/{domain}/privkey.pem)"
+        help="SSL key path (default: /etc/ssl/cloudflare/univoices.origin.key)"
     )
     
     parser.add_argument(

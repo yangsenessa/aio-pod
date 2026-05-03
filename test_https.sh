@@ -12,8 +12,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration
-DOMAIN="mcp.aio2030.fun"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/domain_constants.sh
+source "${SCRIPT_DIR}/scripts/domain_constants.sh"
+DOMAIN="$MCP_DOMAIN"
 FILE_SERVER_PORT=8001
 EXEC_SERVER_PORT=8000
 
@@ -182,8 +184,12 @@ display_status() {
     echo "File Server: $(lsof -i :$FILE_SERVER_PORT > /dev/null 2>&1 && echo 'running' || echo 'stopped')"
     echo "Exec Server: $(lsof -i :$EXEC_SERVER_PORT > /dev/null 2>&1 && echo 'running' || echo 'stopped')"
     echo
-    echo "=== SSL Certificate ==="
-    sudo certbot certificates 2>/dev/null | grep -A 5 "$DOMAIN" || echo "Certificate info not available"
+    echo "=== SSL (Cloudflare edge / Origin PEM) ==="
+    if [[ -f "${CF_ORIGIN_CERT}" ]]; then
+        openssl x509 -in "${CF_ORIGIN_CERT}" -noout -subject -dates 2>/dev/null || echo "Cannot read origin certificate"
+    else
+        echo "Origin certificate not found at ${CF_ORIGIN_CERT}"
+    fi
     echo
     echo "=== API Endpoints ==="
     echo "Health: https://$DOMAIN/health"
@@ -195,7 +201,7 @@ display_status() {
     echo "Check nginx: sudo systemctl status nginx"
     echo "Check logs: sudo tail -f /var/log/nginx/error.log"
     echo "Test SSL: openssl s_client -connect $DOMAIN:443 -servername $DOMAIN"
-    echo "Renew cert: sudo certbot renew"
+    echo "Update origin cert: sudo ./replace_ssl_cert.sh"
 }
 
 # Main execution

@@ -12,12 +12,13 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration
-DOMAIN="mcp.aio2030.fun"
-EMAIL="admin@aio2030.fun"  # Change this to your email
-# Get the directory where this script is located
+# Configuration (Cloudflare + Origin cert paths)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$SCRIPT_DIR"
+# shellcheck source=scripts/domain_constants.sh
+source "${SCRIPT_DIR}/scripts/domain_constants.sh"
+DOMAIN="$MCP_DOMAIN"
+EMAIL="${DEPLOY_EMAIL:-admin@univoices.club}"
 
 # Print colored text
 print_info() {
@@ -49,8 +50,8 @@ check_prerequisites() {
     print_info "Checking prerequisites..."
     
     # Check if we're in the right directory
-    if [[ ! -f "nginx.conf" ]]; then
-        print_error "nginx.conf not found. Please run this script from the project root."
+    if [[ ! -f "nginx_ssl.conf" ]]; then
+        print_error "nginx_ssl.conf not found. Please run this script from the project root."
         exit 1
     fi
     
@@ -68,6 +69,7 @@ make_executable() {
     print_info "Making scripts executable..."
     
     chmod +x setup_nginx_ssl.sh
+    chmod +x replace_ssl_cert.sh
     chmod +x start_aio_pod.sh
     chmod +x stop_aio_pod.sh
     
@@ -176,10 +178,10 @@ display_final_info() {
     echo "Restart nginx: systemctl restart nginx"
     echo "View nginx logs: tail -f /var/log/nginx/access.log"
     echo
-    echo "=== SSL Certificate ==="
-    echo "Certificate location: /etc/letsencrypt/live/$DOMAIN/"
-    echo "Auto-renewal: Configured (daily)"
-    echo "Manual renewal: certbot renew"
+    echo "=== SSL (origin) ==="
+    echo "Origin PEM: $CF_ORIGIN_CERT"
+    echo "Origin KEY: $CF_ORIGIN_KEY"
+    echo "Install/update: sudo ./replace_ssl_cert.sh"
     echo
     echo "=== API Endpoints ==="
     echo "File Upload: POST https://$DOMAIN/api/v1/upload/{type}"
@@ -198,7 +200,7 @@ display_final_info() {
 main() {
     print_info "Starting AIO-Pod complete deployment..."
     print_info "Domain: $DOMAIN"
-    print_info "Email: $EMAIL"
+    print_info "Email (notifications): $EMAIL"
     print_info "Workspace: $WORKSPACE_ROOT"
     echo
     

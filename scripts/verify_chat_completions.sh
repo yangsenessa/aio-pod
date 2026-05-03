@@ -1,13 +1,16 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 # 验证 Chat 服务是否正常工作（与 test_chat_router.py 的检查项一致）
 # 用法: sh scripts/verify_chat_completions.sh [BASE_URL]
 # 示例: sh scripts/verify_chat_completions.sh
-#       sh scripts/verify_chat_completions.sh https://webchat.aio2030.fun
+#       sh scripts/verify_chat_completions.sh https://webchat.univoices.club
 #       sh scripts/verify_chat_completions.sh http://localhost:8002
 
 set -e
 
-BASE_URL="${1:-https://webchat.aio2030.fun}"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/domain_constants.sh
+source "${SCRIPT_ROOT}/scripts/domain_constants.sh"
+BASE_URL="${1:-${WEBCHAT_BASE_URL}}"
 BASE_URL="${BASE_URL%/}"
 
 red () { echo "\033[0;31m$*\033[0m"; }

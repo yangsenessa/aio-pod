@@ -1,42 +1,28 @@
 #!/bin/bash
 
-# AIO-Pod Nginx SSL Setup Script
-# This script installs nginx, configures SSL certificates with Let's Encrypt,
-# and sets up reverse proxy for the AIO-Pod services
+# AIO-Pod Nginx 安装：使用仓库内 nginx_ssl.conf + Cloudflare Origin Certificate（推荐 SSL Full Strict）
 
 set -e
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Configuration
-DOMAIN="mcp.aio2030.fun"
-EMAIL="admin@aio2030.fun"  # Change this to your email
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/domain_constants.sh
+source "${SCRIPT_DIR}/scripts/domain_constants.sh"
+
+DOMAIN="$MCP_DOMAIN"
 NGINX_CONF="/etc/nginx/nginx.conf"
-CERTBOT_DIR="/etc/letsencrypt"
+NGINX_SSL_SRC="${SCRIPT_DIR}/nginx_ssl.conf"
 
-# Print colored text
-print_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
+print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
+print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Check if running as root
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         print_error "This script must be run as root"
@@ -44,29 +30,19 @@ check_root() {
     fi
 }
 
-# Update system packages
 update_system() {
     print_info "Updating system packages..."
-    apt update && apt upgrade -y
+    apt-get update && apt-get upgrade -y
     print_success "System packages updated"
 }
 
-# Install nginx
 install_nginx() {
     print_info "Installing nginx..."
-    apt install -y nginx
+    apt-get install -y nginx
     systemctl enable nginx
     print_success "Nginx installed and enabled"
 }
 
-# Install certbot
-install_certbot() {
-    print_info "Installing certbot..."
-    apt install -y certbot python3-certbot-nginx
-    print_success "Certbot installed"
-}
-
-# Create web root directory for Let's Encrypt challenge
 setup_web_root() {
     print_info "Setting up web root directory..."
     mkdir -p /var/www/html
@@ -75,7 +51,17 @@ setup_web_root() {
     print_success "Web root directory created"
 }
 
-# Backup existing nginx configuration
+ensure_cloudflare_origin() {
+    print_info "Checking Cloudflare Origin Certificate files..."
+    if [[ ! -f "$CF_ORIGIN_CERT" ]] || [[ ! -f "$CF_ORIGIN_KEY" ]]; then
+        print_error "缺少源站证书。请在 Cloudflare 控制台创建 Origin Certificate，然后执行其一："
+        print_error "  1) sudo ./replace_ssl_cert.sh   （将 certification/fullchain.pem 与 certification/certkey.pem 安装到默认路径）"
+        print_error "  2) 手动复制 PEM 到: $CF_ORIGIN_CERT 与 $CF_ORIGIN_KEY"
+        exit 1
+    fi
+    print_success "Origin 证书文件已存在"
+}
+
 backup_nginx_conf() {
     if [[ -f "$NGINX_CONF" ]]; then
         print_info "Backing up existing nginx configuration..."
@@ -84,14 +70,13 @@ backup_nginx_conf() {
     fi
 }
 
-# Install custom nginx configuration
 install_nginx_conf() {
-    print_info "Installing custom nginx configuration..."
-    
-    # Copy our nginx configuration
-    cp nginx.conf "$NGINX_CONF"
-    
-    # Test nginx configuration
+    print_info "Installing nginx_ssl.conf as ${NGINX_CONF}..."
+    if [[ ! -f "$NGINX_SSL_SRC" ]]; then
+        print_error "Missing $NGINX_SSL_SRC"
+        exit 1
+    fi
+    cp "$NGINX_SSL_SRC" "$NGINX_CONF"
     if nginx -t; then
         print_success "Nginx configuration is valid"
     else
@@ -100,81 +85,23 @@ install_nginx_conf() {
     fi
 }
 
-# Start nginx with HTTP-only configuration
-start_nginx_http() {
-    print_info "Starting nginx with HTTP configuration..."
-    systemctl start nginx
-    systemctl status nginx --no-pager
-    print_success "Nginx started"
-}
-
-# Obtain SSL certificate
-obtain_ssl_certificate() {
-    print_info "Obtaining SSL certificate for $DOMAIN..."
-    
-    # Stop nginx temporarily for certificate verification
-    systemctl stop nginx
-    
-    # Obtain certificate
-    certbot certonly --standalone \
-        --email "$EMAIL" \
-        --agree-tos \
-        --no-eff-email \
-        --domains "$DOMAIN" \
-        --non-interactive
-    
-    if [[ $? -eq 0 ]]; then
-        print_success "SSL certificate obtained successfully"
+start_or_reload_nginx() {
+    print_info "Starting/reloading nginx..."
+    systemctl enable nginx
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
     else
-        print_error "Failed to obtain SSL certificate"
-        exit 1
+        systemctl start nginx
     fi
+    systemctl status nginx --no-pager || true
+    print_success "Nginx is running"
 }
 
-# Configure nginx with SSL
-configure_nginx_ssl() {
-    print_info "Configuring nginx with SSL..."
-    
-    # Start nginx with SSL configuration
-    systemctl start nginx
-    
-    # Test nginx configuration
-    if nginx -t; then
-        print_success "Nginx SSL configuration is valid"
-    else
-        print_error "Nginx SSL configuration is invalid"
-        exit 1
-    fi
-    
-    # Reload nginx
-    systemctl reload nginx
-    print_success "Nginx configured with SSL"
-}
-
-# Setup automatic certificate renewal
-setup_cert_renewal() {
-    print_info "Setting up automatic certificate renewal..."
-    
-    # Create renewal script
-    cat > /etc/cron.daily/renew-ssl-cert << 'EOF'
-#!/bin/bash
-certbot renew --quiet --post-hook "systemctl reload nginx"
-EOF
-    
-    chmod +x /etc/cron.daily/renew-ssl-cert
-    print_success "Automatic certificate renewal configured"
-}
-
-# Configure firewall
 configure_firewall() {
     print_info "Configuring firewall..."
-    
-    # Install ufw if not present
     if ! command -v ufw &> /dev/null; then
-        apt install -y ufw
+        apt-get install -y ufw
     fi
-    
-    # Configure firewall rules
     ufw --force reset
     ufw default deny incoming
     ufw default allow outgoing
@@ -182,86 +109,56 @@ configure_firewall() {
     ufw allow 80/tcp
     ufw allow 443/tcp
     ufw --force enable
-    
     print_success "Firewall configured"
 }
 
-# Test SSL configuration
 test_ssl() {
-    print_info "Testing SSL configuration..."
-    
-    # Test HTTP to HTTPS redirect
-    HTTP_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://$DOMAIN")
-    if [[ "$HTTP_RESPONSE" == "301" ]]; then
-        print_success "HTTP to HTTPS redirect working"
-    else
-        print_warning "HTTP to HTTPS redirect may not be working (got $HTTP_RESPONSE)"
-    fi
-    
-    # Test HTTPS
-    HTTPS_RESPONSE=$(curl -s -k -o /dev/null -w "%{http_code}" "https://$DOMAIN")
+    print_info "Testing HTTPS (via Cloudflare edge, hostname ${DOMAIN})..."
+    local HTTPS_RESPONSE
+    HTTPS_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "https://${DOMAIN}/health" || true)
     if [[ "$HTTPS_RESPONSE" == "200" ]]; then
-        print_success "HTTPS working correctly"
+        print_success "HTTPS health check OK"
     else
-        print_warning "HTTPS may not be working (got $HTTPS_RESPONSE)"
-    fi
-    
-    # Test SSL certificate
-    if openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" < /dev/null 2>/dev/null | grep -q "Verify return code: 0"; then
-        print_success "SSL certificate is valid"
-    else
-        print_warning "SSL certificate validation failed"
+        print_warning "HTTPS health returned HTTP $HTTPS_RESPONSE (确认 DNS/CF 代理/后端服务已就绪)"
     fi
 }
 
-# Display final information
 display_info() {
     echo
-    print_success "Nginx SSL setup completed successfully!"
+    print_success "Nginx + Cloudflare Origin 路径配置完成"
     echo
-    echo "=== Configuration Summary ==="
-    echo "Domain: $DOMAIN"
-    echo "SSL Certificate: $CERTBOT_DIR/live/$DOMAIN/"
-    echo "Nginx Config: $NGINX_CONF"
-    echo "Firewall: Enabled (ports 22, 80, 443)"
+    echo "=== Summary ==="
+    echo "MCP domain: $DOMAIN"
+    echo "Webchat domain: $WEBCHAT_DOMAIN"
+    echo "Origin cert: $CF_ORIGIN_CERT"
+    echo "Origin key:  $CF_ORIGIN_KEY"
+    echo "Nginx main:  $NGINX_CONF"
     echo
-    echo "=== Available Endpoints ==="
-    echo "HTTPS: https://$DOMAIN"
-    echo "Health Check: https://$DOMAIN/health"
-    echo "API Base: https://$DOMAIN/api/v1/"
-    echo "MCP Endpoints: https://$DOMAIN/api/v1/mcp/"
+    echo "=== Chat 站点 ==="
+    echo "生成 Chat Nginx 片段: python3 ${SCRIPT_DIR}/generate_nginx_config.py"
+    echo "然后 sudo cp ${SCRIPT_DIR}/nginx_webchat.conf /etc/nginx/sites-available/${WEBCHAT_DOMAIN}.conf"
+    echo "     sudo ln -sf /etc/nginx/sites-available/${WEBCHAT_DOMAIN}.conf /etc/nginx/sites-enabled/"
+    echo "     sudo nginx -t && sudo systemctl reload nginx"
     echo
-    echo "=== Management Commands ==="
-    echo "Check nginx status: systemctl status nginx"
-    echo "Restart nginx: systemctl restart nginx"
-    echo "View nginx logs: tail -f /var/log/nginx/access.log"
-    echo "Renew certificate: certbot renew"
+    echo "Cloudflare: SSL/TLS 建议使用 Full (strict)，边缘证书由 CF 管理。"
     echo
-    print_info "Certificate will auto-renew daily"
 }
 
-# Main execution
 main() {
-    print_info "Starting AIO-Pod Nginx SSL Setup..."
+    print_info "AIO-Pod Nginx setup (Cloudflare origin TLS)"
     print_info "Domain: $DOMAIN"
-    print_info "Email: $EMAIL"
     echo
-    
     check_root
+    ensure_cloudflare_origin
     update_system
     install_nginx
-    install_certbot
     setup_web_root
     backup_nginx_conf
     install_nginx_conf
-    start_nginx_http
-    obtain_ssl_certificate
-    configure_nginx_ssl
-    setup_cert_renewal
+    start_or_reload_nginx
     configure_firewall
     test_ssl
     display_info
 }
 
-# Run main function
-main "$@" 
+main "$@"

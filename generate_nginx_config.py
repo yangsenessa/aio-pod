@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Generate Nginx Configuration for webchat.aio2030.fun
-为 Chat Router 服务生成 Nginx 配置
+Generate Nginx Configuration for webchat.univoices.club
+为 Chat Router 服务生成 Nginx 配置（源站证书：Cloudflare Origin Certificate）
 """
 
 import sys
@@ -17,20 +17,22 @@ from skills.nginx.nginx_config_skill import NginxConfigSkill
 
 def main():
     """生成 Chat Router 的 Nginx 配置"""
-    
+
     print("=" * 70)
     print("Nginx Configuration Generator for Chat Router")
     print("=" * 70)
     print()
-    
-    # 配置参数
-    domain = "webchat.aio2030.fun"
+
+    # 配置参数（证书 SAN 需包含 webchat.univoices.club，通常与同目录 MCP 共用一张 Origin 证书）
+    domain = "webchat.univoices.club"
     service_type = "chat_router"
     backend_port = 8002
     enable_ssl = True
-    cert_path = f"/etc/letsencrypt/live/{domain}/fullchain.pem"
-    key_path = f"/etc/letsencrypt/live/{domain}/privkey.pem"
-    
+    cert_path = "/etc/ssl/cloudflare/univoices.origin.pem"
+    key_path = "/etc/ssl/cloudflare/univoices.origin.key"
+
+    site_filename = f"{domain}.conf"
+
     print(f"Domain: {domain}")
     print(f"Service Type: {service_type}")
     print(f"Backend Port: {backend_port}")
@@ -38,10 +40,10 @@ def main():
     print(f"Certificate: {cert_path}")
     print(f"Private Key: {key_path}")
     print()
-    
+
     # 创建技能实例
     skill = NginxConfigSkill()
-    
+
     # 生成配置
     try:
         config = skill.generate_config(
@@ -50,14 +52,14 @@ def main():
             backend_port=backend_port,
             enable_ssl=enable_ssl,
             cert_path=cert_path,
-            key_path=key_path
+            key_path=key_path,
         )
-        
+
         # 输出到文件
         output_file = project_root / "nginx_webchat.conf"
         with open(output_file, "w") as f:
             f.write(config)
-        
+
         print("✓ Configuration generated successfully!")
         print()
         print(f"Output file: {output_file}")
@@ -66,24 +68,30 @@ def main():
         print("Next Steps:")
         print("=" * 70)
         print()
-        print("1. 复制配置文件到 Nginx 配置目录：")
-        print(f"   sudo cp {output_file} /etc/nginx/sites-available/webchat.aio2030.fun.conf")
+        print("1. 将 Cloudflare Origin PEM/KEY 放到:")
+        print(f"   {cert_path}")
+        print(f"   {key_path}")
         print()
-        print("2. 创建符号链接：")
-        print("   sudo ln -s /etc/nginx/sites-available/webchat.aio2030.fun.conf /etc/nginx/sites-enabled/")
+        print("2. 复制配置文件到 Nginx 配置目录：")
+        print(f"   sudo cp {output_file} /etc/nginx/sites-available/{site_filename}")
         print()
-        print("3. 测试 Nginx 配置：")
+        print("3. 创建符号链接：")
+        print(
+            f"   sudo ln -sf /etc/nginx/sites-available/{site_filename} /etc/nginx/sites-enabled/"
+        )
+        print()
+        print("4. 测试 Nginx 配置：")
         print("   sudo nginx -t")
         print()
-        print("4. 重新加载 Nginx：")
+        print("5. 重新加载 Nginx：")
         print("   sudo systemctl reload nginx")
         print()
-        print("5. 检查服务状态：")
-        print("   curl https://webchat.aio2030.fun/health")
+        print("6. 检查服务状态：")
+        print(f"   curl https://{domain}/health")
         print()
         print("=" * 70)
         print()
-        
+
         # 显示配置内容预览
         print("Configuration Preview:")
         print("-" * 70)
@@ -93,7 +101,7 @@ def main():
         if len(lines) > 30:
             print(f"... ({len(lines) - 30} more lines)")
         print("-" * 70)
-        
+
     except Exception as e:
         print(f"✗ Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
