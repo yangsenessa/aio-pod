@@ -166,7 +166,7 @@ display_status() {
     echo "Check nginx: systemctl status nginx"
     echo "Check logs: tail -f /var/log/nginx/error.log"
     echo "Test SSL: openssl s_client -connect $DOMAIN:443"
-    echo "Origin TLS: sudo ./replace_ssl_cert.sh（Cloudflare Origin PEM → ${CF_ORIGIN_CERT}）"
+    echo "TLS: certbot 维护 LE；橙云 Origin: sudo ./replace_ssl_cert.sh → ${CF_ORIGIN_CERT}"
 }
 
 # Main execution

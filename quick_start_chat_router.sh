@@ -90,7 +90,7 @@ echo "2. 测试服务："
 echo -e "   ${BLUE}python3 test_chat_router.py${NC}"
 echo -e "   ${YELLOW}测试日志将保存到: ./log/test_chat_router_<时间戳>.log${NC}"
 echo
-echo "3. 部署 Nginx 配置（源站使用 Cloudflare Origin 证书）："
+echo "3. 部署 Nginx 配置（源站 TLS：与 MCP 一致的 Let's Encrypt 路径，见 nginx_webchat.conf）："
 echo -e "   ${BLUE}sudo cp nginx_webchat.conf /etc/nginx/sites-available/webchat.univoices.club.conf${NC}"
 echo -e "   ${BLUE}sudo ln -sf /etc/nginx/sites-available/webchat.univoices.club.conf /etc/nginx/sites-enabled/${NC}"
 echo -e "   ${BLUE}sudo nginx -t${NC}"
