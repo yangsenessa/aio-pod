@@ -17,6 +17,8 @@ source "${SCRIPT_DIR}/scripts/domain_constants.sh"
 DOMAIN="$MCP_DOMAIN"
 NGINX_CONF="/etc/nginx/nginx.conf"
 NGINX_SSL_SRC="${SCRIPT_DIR}/nginx_ssl.conf"
+MCP_SITE_SRC="${SCRIPT_DIR}/nginx/sites-available/mcp.univoices.club"
+MCP_SITE_DST="/etc/nginx/sites-available/mcp.univoices.club"
 
 print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
@@ -68,6 +70,33 @@ backup_nginx_conf() {
         cp "$NGINX_CONF" "${NGINX_CONF}.backup.$(date +%Y%m%d_%H%M%S)"
         print_success "Nginx configuration backed up"
     fi
+}
+
+install_mcp_site() {
+    print_info "Installing MCP vhost (mcp.univoices.club) to sites-available + sites-enabled..."
+    if [[ ! -f "$MCP_SITE_SRC" ]]; then
+        print_error "Missing $MCP_SITE_SRC"
+        exit 1
+    fi
+    mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+    cp "$MCP_SITE_SRC" "$MCP_SITE_DST"
+    ln -sf "$MCP_SITE_DST" /etc/nginx/sites-enabled/mcp.univoices.club
+    print_success "MCP site installed and enabled"
+}
+
+# 旧配置曾用「http2 off」试图规避 CF，反而易导致回源 ALPN 与 CF 不重叠 → 525；且多份相同 server_name 时先加载的块生效
+warn_if_http2_off_directive() {
+    local f found=0
+    shopt -s nullglob
+    for f in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
+        [[ -f "$f" ]] || continue
+        if grep -qE '^[[:space:]]*http2[[:space:]]+off[[:space:]]*;' "$f" 2>/dev/null; then
+            found=1
+            print_warning "仍发现指令「http2 off」: $f — Cloudflare 回源常见 525。请改为 http2 on（或 listen 443 ssl http2），并删除重复的 MCP server 块。"
+        fi
+    done
+    shopt -u nullglob
+    [[ "$found" -eq 1 ]] || true
 }
 
 install_nginx_conf() {
@@ -133,6 +162,7 @@ display_info() {
     echo "Origin cert: $CF_ORIGIN_CERT"
     echo "Origin key:  $CF_ORIGIN_KEY"
     echo "Nginx main:  $NGINX_CONF"
+    echo "MCP vhost:   $MCP_SITE_DST (sites-enabled)"
     echo
     echo "=== Chat 站点 ==="
     echo "生成 Chat Nginx 片段: python3 ${SCRIPT_DIR}/generate_nginx_config.py"
@@ -154,7 +184,9 @@ main() {
     install_nginx
     setup_web_root
     backup_nginx_conf
+    install_mcp_site
     install_nginx_conf
+    warn_if_http2_off_directive
     start_or_reload_nginx
     configure_firewall
     test_ssl
