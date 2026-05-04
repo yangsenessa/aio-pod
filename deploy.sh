@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration (Cloudflare + Origin cert paths)
+# Configuration（域名与 TLS 路径见 scripts/domain_constants.sh；默认灰云 + Let's Encrypt）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$SCRIPT_DIR"
 # shellcheck source=scripts/domain_constants.sh
@@ -178,10 +178,10 @@ display_final_info() {
     echo "Restart nginx: systemctl restart nginx"
     echo "View nginx logs: tail -f /var/log/nginx/access.log"
     echo
-    echo "=== SSL (origin) ==="
-    echo "Origin PEM: $CF_ORIGIN_CERT"
-    echo "Origin KEY: $CF_ORIGIN_KEY"
-    echo "Install/update: sudo ./replace_ssl_cert.sh"
+    echo "=== TLS ==="
+    echo "Let's Encrypt: $LE_TLS_CERT / $LE_TLS_KEY"
+    echo "Cloudflare Origin (可选, 橙云 Full strict): $CF_ORIGIN_CERT / $CF_ORIGIN_KEY"
+    echo "更新 Origin: sudo ./replace_ssl_cert.sh"
     echo
     echo "=== API Endpoints ==="
     echo "File Upload: POST https://$DOMAIN/api/v1/upload/{type}"

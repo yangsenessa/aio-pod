@@ -1,8 +1,10 @@
 # MCP 源站（mcp.univoices.club）
 # 由 setup_nginx_ssl.sh 安装到 /etc/nginx/sites-available/ 并链到 sites-enabled
+#
+# DNS：Cloudflare 灰云（仅 DNS）时，客户端直连源站，源站呈现 Let's Encrypt 链（如 *.univoices.club）。
+# 若改为橙云回源且 Full (strict)，须改回源站为 Cloudflare Origin 并与面板证书策略一致（见 domain_constants.sh）。
 
 # HTTP server (redirect to HTTPS)
-# 浏览器侧证书由 Cloudflare 边缘提供；源站使用 Cloudflare Origin Certificate（SSL 模式建议 Full Strict）
 server {
     listen 80;
     server_name mcp.univoices.club;
@@ -20,18 +22,17 @@ server {
 
 # HTTPS server
 server {
-    # Cloudflare 回源会带 ALPN（含 h2）；http2 off 会使源站不协商 ALPN，易导致 525。需 http2 on（nginx ≥1.25.1；更旧请用 listen 443 ssl http2）
+    # 须 http2 on 以与常见 ALPN（h2）对齐；http2 off 易握手失败。经 Cloudflare 橙云回源时不当配置还会表现为 525。
     listen 443 ssl;
     http2 on;
     server_name mcp.univoices.club;
 
-    # Cloudflare Origin Certificate（与 generate_nginx_config / replace_ssl_cert 使用同一套路径）
-    # 可选：在 PEM 中追加第二段证书（CF Origin RSA 根，见 CF 文档 origin_ca_rsa_root.pem），段与段之间须有空行
-    ssl_certificate /etc/ssl/cloudflare/univoices.origin.pem;
-    ssl_certificate_key /etc/ssl/cloudflare/univoices.origin.key;
+    # Let's Encrypt（通配符常与 apex 共用 live 目录；路径可经 LE_TLS_CERT / LE_TLS_KEY 环境变量与仓库脚本对齐）
+    ssl_certificate /etc/letsencrypt/live/univoices.club/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/univoices.club/privkey.pem;
 
     ssl_early_data off;
-    # CF 回源常见 TLS1.3；勿 ssl_protocols 仅 TLSv1.2（CF ClientHello 仍带 TLS1.3 扩展时易 525）。勿写死 ssl_ecdh_curve 曲线链（易 bad key share）
+    # 勿 ssl_protocols 仅 TLSv1.2 且禁 TLS1.3（易与客户端/中间盒不兼容）。勿写死 ssl_ecdh_curve 曲线链（易 bad key share）
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384;
     ssl_prefer_server_ciphers off;
