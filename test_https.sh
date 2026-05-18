@@ -184,11 +184,15 @@ display_status() {
     echo "File Server: $(lsof -i :$FILE_SERVER_PORT > /dev/null 2>&1 && echo 'running' || echo 'stopped')"
     echo "Exec Server: $(lsof -i :$EXEC_SERVER_PORT > /dev/null 2>&1 && echo 'running' || echo 'stopped')"
     echo
-    echo "=== SSL (Cloudflare edge / Origin PEM) ==="
-    if [[ -f "${CF_ORIGIN_CERT}" ]]; then
+    echo "=== SSL (源站 PEM) ==="
+    if [[ -f "${LE_TLS_CERT}" ]]; then
+        echo "Let's Encrypt: ${LE_TLS_CERT}"
+        openssl x509 -in "${LE_TLS_CERT}" -noout -subject -dates 2>/dev/null || echo "Cannot read LE certificate"
+    elif [[ -f "${CF_ORIGIN_CERT}" ]]; then
+        echo "Cloudflare Origin: ${CF_ORIGIN_CERT}"
         openssl x509 -in "${CF_ORIGIN_CERT}" -noout -subject -dates 2>/dev/null || echo "Cannot read origin certificate"
     else
-        echo "Origin certificate not found at ${CF_ORIGIN_CERT}"
+        echo "未找到 ${LE_TLS_CERT} 或 ${CF_ORIGIN_CERT}"
     fi
     echo
     echo "=== API Endpoints ==="
@@ -201,7 +205,7 @@ display_status() {
     echo "Check nginx: sudo systemctl status nginx"
     echo "Check logs: sudo tail -f /var/log/nginx/error.log"
     echo "Test SSL: openssl s_client -connect $DOMAIN:443 -servername $DOMAIN"
-    echo "Update origin cert: sudo ./replace_ssl_cert.sh"
+    echo "更新 LE: certbot renew；更新 Origin（橙云）: sudo ./replace_ssl_cert.sh"
 }
 
 # Main execution

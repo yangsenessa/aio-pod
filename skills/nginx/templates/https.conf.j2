@@ -8,7 +8,7 @@ server {
     listen 80;
     server_name {{ domain }};
     
-    # ACME HTTP-01（可选；经 Cloudflare 代理时常配合 DNS-01 或直接使用 Origin 证书）
+    # ACME HTTP-01（可选；通配符常用 DNS-01；灰云下 HTTP-01 可直接校验源站）
     location /.well-known/acme-challenge/ {
         root /var/www/html;
     }

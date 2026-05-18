@@ -69,6 +69,10 @@ export OPENCLAW_DEFAULT_AGENT="${OPENCLAW_DEFAULT_AGENT:-main}"
 # Chat Router 服务配置
 export CHAT_ROUTER_HOST="${CHAT_ROUTER_HOST:-0.0.0.0}"
 export CHAT_ROUTER_PORT="${CHAT_ROUTER_PORT:-8002}"
+# 阿里云百炼
+export DASHSCOPE_API_KEY='sk-0b3c65e413bf48e8a262012f9c8a19a6'
+export DASHSCOPE_IMAGE_MODEL=qwen-image-2.0
+export DASHSCOPE_LLM_MODEL=qwen-turbo
 
 # =============================================================================
 # 服务配置 - 可选，有默认值

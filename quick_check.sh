@@ -40,10 +40,12 @@ check_port() {
 
 check_ssl() {
     echo -n "检查SSL证书... "
-    if [ -f "${CF_ORIGIN_CERT}" ] && [ -f "${CF_ORIGIN_KEY}" ]; then
-        echo -e "${GREEN}✅ Origin 证书文件存在${NC}"
+    if [ -f "${LE_TLS_CERT}" ] && [ -f "${LE_TLS_KEY}" ]; then
+        echo -e "${GREEN}✅ Let's Encrypt 证书文件存在${NC}"
+    elif [ -f "${CF_ORIGIN_CERT}" ] && [ -f "${CF_ORIGIN_KEY}" ]; then
+        echo -e "${GREEN}✅ Cloudflare Origin 证书文件存在${NC}"
     else
-        echo -e "${RED}❌ 缺少 ${CF_ORIGIN_CERT} 或 ${CF_ORIGIN_KEY}${NC}"
+        echo -e "${RED}❌ 缺少 LE（${LE_TLS_CERT}）与 Origin（${CF_ORIGIN_CERT}）两套路径之一${NC}"
     fi
 }
 
@@ -122,7 +124,7 @@ echo "----------"
 echo "重启nginx: sudo systemctl restart nginx"
 echo "重启AIO-Pod: ./stop_aio_pod.sh && ./start_aio_pod.sh"
 echo "查看日志: sudo tail -f /var/log/nginx/error.log"
-echo "更新证书: sudo ./replace_ssl_cert.sh（Cloudflare Origin PEM 放入 certification/）"
+echo "更新证书: certbot（LE）或 sudo ./replace_ssl_cert.sh（Origin PEM 放入 certification/）"
 
 echo ""
 echo "✅ 检查完成！" 
