@@ -2,6 +2,8 @@
 # 验证 MCP / Webchat 各 endpoint 是否可达（域名见 scripts/domain_constants.sh）
 # 「浏览器正常、脚本失败」时：脚本 URL/方法与集成文档一致；根因通常是本机递归 DNS、是否走代理、
 # 以及 curl(LibreSSL)/TCP-TLS 与浏览器(HTTP3/BoringSSL) 路径不同，而非本脚本写错端点。
+# 若直连源站 IP 时仅业务 SNI 失败、中性 SNI（如 example.com）可握手，疑为路径 DPI/按 SNI 策略：
+#   bash scripts/diag_sni_path.sh 8.141.81.75
 # 启动时清除 HTTP(S) 代理环境变量；所有 curl 默认使用 --noproxy '*'。
 # 必须走本机 Clash 等 HTTP 代理（默认 127.0.0.1:7890）：
 #   VERIFY_USE_LOCAL_PROXY=1 ./scripts/verify_endpoints.sh
