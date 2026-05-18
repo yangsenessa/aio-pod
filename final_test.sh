@@ -127,15 +127,19 @@ echo ""
 echo "🔐 SSL证书检查"
 echo "--------------"
 echo -n "证书文件... "
-if [ -f "${CF_ORIGIN_CERT}" ]; then
-    echo -e "${GREEN}✅ 存在${NC}"
+if [ -f "${LE_TLS_CERT}" ]; then
+    echo -e "${GREEN}✅ LE 存在${NC}"
+elif [ -f "${CF_ORIGIN_CERT}" ]; then
+    echo -e "${GREEN}✅ Origin 存在${NC}"
 else
     echo -e "${RED}❌ 不存在${NC}"
 fi
 
 echo -n "私钥文件... "
-if [ -f "${CF_ORIGIN_KEY}" ]; then
-    echo -e "${GREEN}✅ 存在${NC}"
+if [ -f "${LE_TLS_KEY}" ]; then
+    echo -e "${GREEN}✅ LE 私钥存在${NC}"
+elif [ -f "${CF_ORIGIN_KEY}" ]; then
+    echo -e "${GREEN}✅ Origin 私钥存在${NC}"
 else
     echo -e "${RED}❌ 不存在${NC}"
 fi

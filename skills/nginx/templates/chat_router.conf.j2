@@ -8,7 +8,7 @@ server {
     listen 80;
     server_name {{ domain }};
     
-    # ACME HTTP-01（可选；经 Cloudflare 代理时常配合 DNS-01 或直接使用 Origin 证书）
+    # ACME HTTP-01（可选；通配符常用 DNS-01；灰云下 HTTP-01 可直接校验源站）
     location /.well-known/acme-challenge/ {
         root /var/www/html;
     }
@@ -72,22 +72,8 @@ server {
         # SSE (Server-Sent Events) 支持
         proxy_set_header Cache-Control 'no-cache';
         
-        # CORS 头（OpenAI API 兼容）
-        add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With" always;
-        add_header Access-Control-Expose-Headers "Content-Length, Content-Type" always;
-        
-        # OPTIONS 请求处理
-        if ($request_method = 'OPTIONS') {
-            add_header Access-Control-Allow-Origin "*";
-            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS";
-            add_header Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With";
-            add_header Access-Control-Max-Age 3600;
-            add_header Content-Length 0;
-            add_header Content-Type text/plain;
-            return 204;
-        }
+        # CORS 仅由上游 Chat Router（FastAPI CORSMiddleware）输出。此处勿 add_header CORS，
+        # 否则与上游重复，浏览器会报 Access-Control-Allow-Origin: *, * 并拦截。
     }
 
     # 健康检查端点
@@ -139,15 +125,7 @@ server {
         proxy_request_buffering off;
         proxy_cache off;
         
-        # CORS 头
-        add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With" always;
-        
-        # OPTIONS 请求处理
-        if ($request_method = 'OPTIONS') {
-            return 204;
-        }
+        # CORS 由上游统一输出，勿在此 add_header（见 HTTPS 段说明）。
     }
 
     # 健康检查端点

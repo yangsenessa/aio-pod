@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# 将 Cloudflare Origin Certificate 安装到源站 Nginx 使用的路径（配合 CF SSL Full Strict）
+# 将 PEM/KEY 安装到 Cloudflare Origin 默认路径（橙云 + SSL Full strict 回源时使用）。
+# 灰云 + Let's Encrypt：请用 certbot 等维护 /etc/letsencrypt/live/...，与 nginx 中 ssl_certificate 一致即可，通常不需要本脚本。
 # 默认从仓库 certification/fullchain.pem 与 certification/certkey.pem 读取（沿用原文件名）
 
 set -e
@@ -126,7 +127,7 @@ verify_local_tls() {
 }
 
 main() {
-    print_info "Cloudflare Origin 证书安装（域名: ${MCP_DOMAIN} / ${WEBCHAT_DOMAIN}）"
+    print_info "安装到 Cloudflare Origin 路径（域名: ${MCP_DOMAIN} / ${WEBCHAT_DOMAIN}；橙云 Full strict 场景）"
     print_info "来源目录: $CERT_DIR"
     echo
     check_root
@@ -137,7 +138,7 @@ main() {
     reload_nginx
     verify_local_tls
     echo
-    print_success "完成。对外 HTTPS 由 Cloudflare 边缘签发；源站请使用 CF SSL Full (Strict)。"
+    print_success "完成。证书已写入 Origin 路径。橙云时边缘 HTTPS 由 Cloudflare 签发，回源须 Full (strict)。灰云 + Let's Encrypt 时请勿依赖本路径，改用 certbot 与 Nginx 中 LE 路径。"
     echo
     echo "验证命令:"
     echo "  curl -sS -o /dev/null -w '%{http_code}' ${MCP_BASE_URL}/health"

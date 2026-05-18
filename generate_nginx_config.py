@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Generate Nginx Configuration for webchat.univoices.club
-为 Chat Router 服务生成 Nginx 配置（源站证书：Cloudflare Origin Certificate）
+为 Chat Router 服务生成 Nginx 配置（源站证书：Let's Encrypt，与灰云直连方案一致）
 """
 
 import sys
@@ -23,13 +23,13 @@ def main():
     print("=" * 70)
     print()
 
-    # 配置参数（证书 SAN 需包含 webchat.univoices.club，通常与同目录 MCP 共用一张 Origin 证书）
+    # 配置参数（通配符 *.univoices.club 时与同目录 MCP 共用 fullchain/privkey；live 目录名依 certbot 为准）
     domain = "webchat.univoices.club"
     service_type = "chat_router"
     backend_port = 8002
     enable_ssl = True
-    cert_path = "/etc/ssl/cloudflare/univoices.origin.pem"
-    key_path = "/etc/ssl/cloudflare/univoices.origin.key"
+    cert_path = "/etc/letsencrypt/live/univoices.club/fullchain.pem"
+    key_path = "/etc/letsencrypt/live/univoices.club/privkey.pem"
 
     site_filename = f"{domain}.conf"
 
@@ -68,7 +68,7 @@ def main():
         print("Next Steps:")
         print("=" * 70)
         print()
-        print("1. 将 Cloudflare Origin PEM/KEY 放到:")
+        print("1. 确认 Let's Encrypt fullchain.pem / privkey.pem 已存在于（或按需修改路径）:")
         print(f"   {cert_path}")
         print(f"   {key_path}")
         print()
