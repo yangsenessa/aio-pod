@@ -134,6 +134,9 @@ celerybeat.pid
 # Environments
 .env
 .venv
+export_env_local.sh
+export_env_local.sh.backup.*
+export_env_local.local.*
 env/
 venv/
 ENV/
