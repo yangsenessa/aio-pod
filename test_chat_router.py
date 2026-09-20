@@ -10,6 +10,7 @@ import json
 import sys
 import os
 import logging
+import socket
 from datetime import datetime
 
 
@@ -48,6 +49,36 @@ log_file_path = setup_logging()
 logger = logging.getLogger(__name__)
 
 
+def _is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
+    """检查目标主机端口是否可连通。"""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _print_startup_hints(base_url: str):
+    """输出启动与排障建议。"""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(base_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    logger.error("连接失败诊断: host=%s port=%s", host, port)
+    print("\n连接失败诊断:")
+    print(f"  - 目标地址: {host}:{port}")
+    print(f"  - 端口可达: {'是' if _is_port_open(host, port) else '否'}")
+    print("\n建议操作:")
+    print("  1) 启动 Chat Router（前台查看日志）:")
+    print("     ./start_chat_router_local.sh")
+    print("  2) 若已启动过，检查端口监听:")
+    print("     lsof -nP -iTCP:8002 -sTCP:LISTEN")
+    print("  3) 手动健康检查:")
+    print("     curl -sS http://127.0.0.1:8002/health")
+
+
 async def test_health_check(base_url: str):
     """测试健康检查"""
     logger.info("=" * 50)
@@ -70,6 +101,8 @@ async def test_health_check(base_url: str):
     except Exception as e:
         logger.error(f"健康检查异常: {str(e)}", exc_info=True)
         print(f"✗ 错误: {str(e)}")
+        if isinstance(e, httpx.ConnectError):
+            _print_startup_hints(base_url)
         return False
 
 
@@ -102,7 +135,7 @@ async def test_list_models(base_url: str):
         return False
 
 
-async def test_chat_completion(base_url: str, stream: bool = False):
+async def test_chat_completion(base_url: str, stream: bool = False, timeout_seconds: float = 600.0):
     """测试聊天完成"""
     mode = "流式" if stream else "非流式"
     logger.info("=" * 50)
@@ -122,7 +155,7 @@ async def test_chat_completion(base_url: str, stream: bool = False):
     
     try:
         # 使用 trust_env=False 禁用系统代理设置
-        async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=timeout_seconds, trust_env=False) as client:
             if stream:
                 # 流式请求
                 logger.debug("发送流式请求")
@@ -207,6 +240,12 @@ async def main():
         action="store_true",
         help="Test streaming mode"
     )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=600.0,
+        help="Chat completion timeout in seconds (default: 600)"
+    )
     
     args = parser.parse_args()
     base_url = args.url.rstrip("/")
@@ -235,7 +274,7 @@ async def main():
     models_ok = await test_list_models(base_url)
     
     # 测试聊天完成
-    chat_ok = await test_chat_completion(base_url, stream=args.stream)
+    chat_ok = await test_chat_completion(base_url, stream=args.stream, timeout_seconds=args.timeout)
     
     # 总结
     logger.info("=" * 70)

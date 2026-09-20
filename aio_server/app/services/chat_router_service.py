@@ -33,14 +33,263 @@ class ChatRouterService:
     
     async def check_gateway_health(self) -> bool:
         """检查 Gateway 健康状态"""
+        detail = await self.check_gateway_health_detail()
+        return detail.get("connected", False)
+
+    async def check_gateway_health_detail(self) -> Dict[str, Any]:
+        """检查 Gateway 健康状态并返回细节，便于排障。
+
+        说明：
+        - 某些 Gateway 部署未构建 Control UI，`/health` 可能返回 503。
+        - 这种情况下我们继续探测 OpenAI API 端点可达性，避免误判为不可用。
+        """
         try:
             # 使用 trust_env=False 禁用系统代理（访问本地服务）
             async with httpx.AsyncClient(trust_env=False) as client:
                 response = await client.get(f"{self.base_url}/health", timeout=5.0)
-                return response.status_code == 200
+                connected = response.status_code == 200
+                detail = {
+                    "connected": connected,
+                    "status_code": response.status_code,
+                    "base_url": self.base_url,
+                    "response": response.text[:500],
+                }
+                if connected:
+                    return detail
+
+                # /health 失败时，继续探测 API 连通性（无需 UI）
+                # 只要网关进程在响应（包括 401/403），即可视为“网关已启动可达”。
+                api_response = await client.get(
+                    f"{self.base_url}/v1/models",
+                    headers=self._gateway_headers(),
+                    timeout=5.0,
+                )
+                api_connected = api_response.status_code in (200, 401, 403)
+                detail.update(
+                    {
+                        "api_probe_path": "/v1/models",
+                        "api_probe_status_code": api_response.status_code,
+                        "api_probe_response": api_response.text[:500],
+                        "connected": api_connected,
+                    }
+                )
+                if api_connected:
+                    return detail
+
+                # HTTP API 也不可用时，尝试 WebSocket 直连（仅网关模式常见）
+                ws = await self._connect_websocket()
+                ws_connected = ws is not None
+                if ws_connected:
+                    await ws.close()
+                detail.update(
+                    {
+                        "ws_probe": True,
+                        "ws_connected": ws_connected,
+                        "connected": ws_connected,
+                    }
+                )
+                return detail
         except Exception as e:
             logger.error(f"Gateway health check failed: {str(e)}")
+            # HTTP 探测异常时再试一次 WebSocket
+            ws_connected = False
+            try:
+                ws = await self._connect_websocket()
+                ws_connected = ws is not None
+                if ws_connected:
+                    await ws.close()
+            except Exception:
+                ws_connected = False
+
+            return {
+                "connected": False,
+                "base_url": self.base_url,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "ws_probe": True,
+                "ws_connected": ws_connected,
+                "connected": ws_connected,
+            }
+
+    def _is_ui_assets_error(self, text: str) -> bool:
+        """判断是否为 OpenClaw UI 资产缺失导致的 HTTP 503。"""
+        if not text:
             return False
+        low = text.lower()
+        return "control ui assets not found" in low or "pnpm ui:build" in low
+
+    async def _chat_completion_with_fallback(
+        self,
+        messages: List[Dict[str, str]],
+        model: str,
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        **kwargs
+    ) -> Dict[str, Any]:
+        """优先 HTTP；若被 UI 资产问题阻断则自动回退 WebSocket。"""
+        try:
+            return await self._chat_completion_http(
+                messages,
+                model=model,
+                stream=False,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
+            )
+        except Exception as e:
+            msg = str(e)
+            if self._is_ui_assets_error(msg):
+                logger.warning("Gateway HTTP API blocked by missing UI assets; fallback to WebSocket transport")
+                return await self._chat_completion_websocket(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
+                )
+            raise
+
+    async def _chat_completion_websocket(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "openclaw:main",
+        stream: bool = False,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """通过 WebSocket 发送聊天请求并转换为 OpenAI 格式响应。"""
+        # 提取 agent_id
+        agent_id = self.default_agent
+        if model.startswith("openclaw:"):
+            agent_id = model.split(":", 1)[1]
+
+        # 获取最后一条用户消息
+        user_message = None
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_message = msg.get("content")
+                break
+
+        if not user_message:
+            raise ValueError("No user message found in messages")
+
+        # 通过 WebSocket 发送消息
+        ws = await self._connect_websocket()
+        if not ws:
+            raise Exception("Failed to connect to Gateway")
+
+        try:
+            # 构建 sessionKey：有稳定 user 时用其保持会话，否则用默认（每次新 session）
+            user_str = kwargs.get("user")
+            user_str = user_str.strip() if isinstance(user_str, str) else None
+            session_key = f"agent:{agent_id}:user:{user_str}" if user_str else f"agent:{agent_id}:main"
+
+            # 发送 chat.send 请求
+            request_id = f"chat-{int(time.time() * 1000)}"
+            chat_request = {
+                "type": "req",
+                "id": request_id,
+                "method": "chat.send",
+                "params": {
+                    "sessionKey": session_key,
+                    "message": user_message,
+                    "idempotencyKey": request_id,
+                }
+            }
+
+            await ws.send(json.dumps(chat_request))
+
+            # 等待 chat.send 响应
+            response_text = await asyncio.wait_for(ws.recv(), timeout=10.0)
+            response = json.loads(response_text)
+
+            if not response.get("ok"):
+                await ws.close()
+                raise Exception(f"chat.send failed: {response}")
+
+            run_id = response.get("payload", {}).get("runId")
+            if not run_id:
+                await ws.close()
+                raise Exception("No runId in response")
+
+            # 等待 AI 回复
+            accumulated_text = ""
+            is_complete = False
+
+            # 设置超时
+            timeout = 60.0
+            start_time = time.time()
+
+            while not is_complete and (time.time() - start_time) < timeout:
+                try:
+                    message_text = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                    message = json.loads(message_text)
+
+                    # 检查是否是 chat 事件
+                    if message.get("type") == "event" and message.get("event") == "chat":
+                        payload = message.get("payload", {})
+
+                        # 检查是否是当前 runId 的事件
+                        if payload.get("runId") == run_id:
+                            state = payload.get("state")
+
+                            if state == "delta":
+                                # 增量更新
+                                text = payload.get("message", {}).get("content", [{}])[0].get("text", "")
+                                if text:
+                                    accumulated_text = text
+
+                            elif state == "final":
+                                # 最终回复
+                                is_complete = True
+                                text = payload.get("message", {}).get("content", [{}])[0].get("text", "")
+                                if text:
+                                    accumulated_text = text
+                                break
+
+                            elif state == "error":
+                                # 错误
+                                error_msg = payload.get("errorMessage", "Unknown error")
+                                await ws.close()
+                                raise Exception(f"Chat error: {error_msg}")
+
+                except asyncio.TimeoutError:
+                    # 继续等待
+                    continue
+
+            await ws.close()
+
+            if not is_complete:
+                raise Exception("Chat response timeout")
+
+            # 构建 OpenAI 格式的响应
+            response_id = f"chatcmpl-{int(time.time() * 1000)}"
+
+            return {
+                "id": response_id,
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": accumulated_text,
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                }
+            }
+        finally:
+            if ws and not ws.closed:
+                await ws.close()
     
     async def _connect_websocket(self) -> Any:
         """建立 WebSocket 连接并进行认证（参考原始测试脚本）"""
@@ -225,147 +474,22 @@ class ChatRouterService:
             OpenAI 格式的响应
         """
         if self.use_http_api and not stream:
-            return await self._chat_completion_http(
-                messages, model=model, stream=False,
-                temperature=temperature, max_tokens=max_tokens, **kwargs
+            return await self._chat_completion_with_fallback(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs
             )
-        
-        # 提取 agent_id
-        agent_id = self.default_agent
-        if model.startswith("openclaw:"):
-            agent_id = model.split(":", 1)[1]
-        
-        # 获取最后一条用户消息
-        user_message = None
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                user_message = msg.get("content")
-                break
-        
-        if not user_message:
-            raise ValueError("No user message found in messages")
-        
-        # 通过 WebSocket 发送消息
-        ws = await self._connect_websocket()
-        if not ws:
-            raise Exception("Failed to connect to Gateway")
-        
-        try:
-            # 构建 sessionKey：有稳定 user 时用其保持会话，否则用默认（每次新 session）
-            user_str = kwargs.get("user")
-            user_str = user_str.strip() if isinstance(user_str, str) else None
-            session_key = f"agent:{agent_id}:user:{user_str}" if user_str else f"agent:{agent_id}:main"
-            
-            # 发送 chat.send 请求
-            request_id = f"chat-{int(time.time() * 1000)}"
-            chat_request = {
-                "type": "req",
-                "id": request_id,
-                "method": "chat.send",
-                "params": {
-                    "sessionKey": session_key,
-                    "message": user_message,
-                    "idempotencyKey": request_id,
-                }
-            }
-            
-            await ws.send(json.dumps(chat_request))
-            
-            # 等待 chat.send 响应
-            response_text = await asyncio.wait_for(ws.recv(), timeout=10.0)
-            response = json.loads(response_text)
-            
-            if not response.get("ok"):
-                await ws.close()
-                raise Exception(f"chat.send failed: {response}")
-            
-            run_id = response.get("payload", {}).get("runId")
-            if not run_id:
-                await ws.close()
-                raise Exception("No runId in response")
-            
-            # 等待 AI 回复
-            accumulated_text = ""
-            is_complete = False
-            
-            # 设置超时
-            timeout = 60.0
-            start_time = time.time()
-            
-            while not is_complete and (time.time() - start_time) < timeout:
-                try:
-                    message_text = await asyncio.wait_for(ws.recv(), timeout=5.0)
-                    message = json.loads(message_text)
-                    
-                    # 检查是否是 chat 事件
-                    if message.get("type") == "event" and message.get("event") == "chat":
-                        payload = message.get("payload", {})
-                        
-                        # 检查是否是当前 runId 的事件
-                        if payload.get("runId") == run_id:
-                            state = payload.get("state")
-                            
-                            if state == "delta":
-                                # 增量更新
-                                text = payload.get("message", {}).get("content", [{}])[0].get("text", "")
-                                if text:
-                                    accumulated_text = text
-                            
-                            elif state == "final":
-                                # 最终回复
-                                is_complete = True
-                                text = payload.get("message", {}).get("content", [{}])[0].get("text", "")
-                                if text:
-                                    accumulated_text = text
-                                break
-                            
-                            elif state == "error":
-                                # 错误
-                                error_msg = payload.get("errorMessage", "Unknown error")
-                                await ws.close()
-                                raise Exception(f"Chat error: {error_msg}")
-                
-                except asyncio.TimeoutError:
-                    # 继续等待
-                    continue
-            
-            await ws.close()
-            
-            if not is_complete:
-                raise Exception("Chat response timeout")
-            
-            # 构建 OpenAI 格式的响应
-            response_id = f"chatcmpl-{int(time.time() * 1000)}"
-            
-            return {
-                "id": response_id,
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": accumulated_text,
-                        },
-                        "finish_reason": "stop",
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0,
-                }
-            }
-        
-        except Exception as e:
-            try:
-                await ws.close()
-            except:
-                pass
-            raise e
-    
+
+        return await self._chat_completion_websocket(
+            messages=messages,
+            model=model,
+            stream=stream,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs
+        )
     async def chat_completion_stream(
         self,
         messages: List[Dict[str, str]],

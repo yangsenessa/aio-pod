@@ -20,7 +20,9 @@ AIO_SERVER_DIR="$WORKSPACE_ROOT/aio_server"
 FILE_SERVER_PORT=8001
 EXEC_SERVER_PORT=8000
 CHAT_ROUTER_PORT=8002
-CONDA_ENV="aiopod"
+ENABLE_LEGACY_CHAT_ROUTER="${ENABLE_LEGACY_CHAT_ROUTER:-false}"
+PYTHON_VENV_DIR="${AIO_POD_VENV_DIR:-$WORKSPACE_ROOT/.venv}"
+PYTHON_CMD="$PYTHON_VENV_DIR/bin/python3"
 
 # Environment variables for PixelMug MCP Service
 # =============================================================================
@@ -61,7 +63,7 @@ export OPENCLAW_GATEWAY_HOST="${OPENCLAW_GATEWAY_HOST:-127.0.0.1}"
 export OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 
 # OpenClaw Gateway 认证 Token
-export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-sk-lm-gyXsWZIS:opqYGydrY8dwynxrZNT6}"
+export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
 
 # 默认 Agent ID
 export OPENCLAW_DEFAULT_AGENT="${OPENCLAW_DEFAULT_AGENT:-main}"
@@ -70,9 +72,9 @@ export OPENCLAW_DEFAULT_AGENT="${OPENCLAW_DEFAULT_AGENT:-main}"
 export CHAT_ROUTER_HOST="${CHAT_ROUTER_HOST:-0.0.0.0}"
 export CHAT_ROUTER_PORT="${CHAT_ROUTER_PORT:-8002}"
 # 阿里云百炼
-export DASHSCOPE_API_KEY='sk-0b3c65e413bf48e8a262012f9c8a19a6'
-export DASHSCOPE_IMAGE_MODEL=qwen-image-2.0
-export DASHSCOPE_LLM_MODEL=qwen-turbo
+export DASHSCOPE_API_KEY="${DASHSCOPE_API_KEY:-}"
+export DASHSCOPE_IMAGE_MODEL="${DASHSCOPE_IMAGE_MODEL:-qwen-image-2.0}"
+export DASHSCOPE_LLM_MODEL="${DASHSCOPE_LLM_MODEL:-qwen-turbo}"
 
 # =============================================================================
 # 服务配置 - 可选，有默认值
@@ -104,6 +106,10 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+legacy_chat_router_enabled() {
+    [[ "$ENABLE_LEGACY_CHAT_ROUTER" == "true" ]]
+}
+
 # Check if ports are available
 check_ports() {
     print_info "Checking if ports are available..."
@@ -118,12 +124,16 @@ check_ports() {
         return 1
     fi
     
-    if lsof -i :$CHAT_ROUTER_PORT > /dev/null 2>&1; then
+    if legacy_chat_router_enabled && lsof -i :$CHAT_ROUTER_PORT > /dev/null 2>&1; then
         print_warning "Port $CHAT_ROUTER_PORT is already in use"
         return 1
     fi
-    
-    print_success "Ports $FILE_SERVER_PORT, $EXEC_SERVER_PORT and $CHAT_ROUTER_PORT are available"
+
+    if legacy_chat_router_enabled; then
+        print_success "Ports $FILE_SERVER_PORT, $EXEC_SERVER_PORT and $CHAT_ROUTER_PORT are available"
+    else
+        print_success "Ports $FILE_SERVER_PORT and $EXEC_SERVER_PORT are available"
+    fi
     return 0
 }
 
@@ -132,10 +142,15 @@ kill_existing_processes() {
     print_info "Cleaning up existing processes..."
     
     # Kill processes on our ports (compatible with both Linux and macOS)
-    local pids=$(lsof -ti:$FILE_SERVER_PORT,$EXEC_SERVER_PORT,$CHAT_ROUTER_PORT 2>/dev/null || true)
+    local managed_ports="$FILE_SERVER_PORT,$EXEC_SERVER_PORT"
+    if legacy_chat_router_enabled; then
+        managed_ports="$managed_ports,$CHAT_ROUTER_PORT"
+    fi
+    local pids
+    pids=$(lsof -ti:"$managed_ports" 2>/dev/null || true)
     if [[ -n "$pids" ]]; then
         echo "$pids" | xargs kill -9 2>/dev/null || true
-        print_info "Killed existing processes on ports $FILE_SERVER_PORT, $EXEC_SERVER_PORT, $CHAT_ROUTER_PORT"
+        print_info "Killed existing processes on ports $managed_ports"
     else
         print_info "No existing processes found on ports"
     fi
@@ -143,61 +158,49 @@ kill_existing_processes() {
     print_success "Existing processes cleaned up"
 }
 
-# Setup conda environment
-setup_conda() {
-    print_info "Setting up conda environment..."
-    
-    # Add conda to PATH if not available
-    if ! command -v conda &> /dev/null; then
-        print_info "Conda not in PATH, searching for conda installation..."
-        
-        # Common conda installation locations
-        CONDA_PATHS=(
-            "$HOME/miniconda3"
-            "$HOME/anaconda3"
-            "$HOME/conda"
-            "/opt/conda"
-            "/opt/miniconda3"
-            "/opt/anaconda3"
-        )
-        
-        CONDA_FOUND=false
-        for conda_path in "${CONDA_PATHS[@]}"; do
-            if [[ -f "$conda_path/bin/conda" ]]; then
-                print_info "Found conda at: $conda_path"
-                export PATH="$conda_path/bin:$PATH"
-                eval "$($conda_path/bin/conda shell.bash hook)"
-                CONDA_FOUND=true
-                break
-            fi
-        done
-        
-        if [[ "$CONDA_FOUND" == false ]]; then
-            print_error "conda not found. Please install Anaconda or Miniconda"
-            print_info "Common installation locations checked:"
-            for conda_path in "${CONDA_PATHS[@]}"; do
-                print_info "  - $conda_path"
+# Set up a repository-local virtual environment. Never install AIO-Pod
+# dependencies into the caller's active environment (especially ESP-IDF).
+setup_python_env() {
+    print_info "Setting up isolated Python environment..."
+
+    if [[ ! -x "$PYTHON_CMD" ]]; then
+        local bootstrap_python="${AIO_POD_BOOTSTRAP_PYTHON:-}"
+
+        if [[ -z "$bootstrap_python" ]]; then
+            for candidate in \
+                "$HOME/miniconda3/bin/python3" \
+                "$HOME/anaconda3/bin/python3" \
+                "/opt/homebrew/bin/python3.12" \
+                "/usr/local/bin/python3.12" \
+                "/usr/bin/python3"; do
+                if [[ -x "$candidate" ]]; then
+                    bootstrap_python="$candidate"
+                    break
+                fi
             done
+        fi
+
+        if [[ -z "$bootstrap_python" || ! -x "$bootstrap_python" ]]; then
+            print_error "No suitable Python interpreter found to create $PYTHON_VENV_DIR"
+            print_info "Set AIO_POD_BOOTSTRAP_PYTHON to a Python 3.9-3.12 executable"
             exit 1
         fi
+
+        if ! "$bootstrap_python" -c 'import sys; raise SystemExit(not ((3, 9) <= sys.version_info[:2] <= (3, 12)))'; then
+            print_error "AIO-Pod requires Python 3.9-3.12: $bootstrap_python"
+            exit 1
+        fi
+
+        print_info "Creating $PYTHON_VENV_DIR with $bootstrap_python"
+        "$bootstrap_python" -m venv "$PYTHON_VENV_DIR"
     fi
-    
-    # Check if conda is now available
-    if ! command -v conda &> /dev/null; then
-        print_error "conda not found. Please install Anaconda or Miniconda"
+
+    if ! "$PYTHON_CMD" -c 'import sys; raise SystemExit(sys.prefix == sys.base_prefix)'; then
+        print_error "Invalid virtual environment: $PYTHON_VENV_DIR"
         exit 1
     fi
-    
-    # Activate conda environment
-    eval "$(conda shell.bash hook)"
-    conda activate $CONDA_ENV || {
-        print_warning "Failed to activate conda environment $CONDA_ENV"
-        print_info "Creating new conda environment..."
-        conda create -n $CONDA_ENV python=3.9 -y
-        conda activate $CONDA_ENV
-    }
-    
-    print_success "Conda environment activated"
+
+    print_success "Using isolated Python: $PYTHON_CMD"
 }
 
 # Install dependencies
@@ -208,11 +211,11 @@ install_dependencies() {
     
     # Install requirements
     if [[ -f "requirements.txt" ]]; then
-        pip install -r requirements.txt
+        "$PYTHON_CMD" -m pip install -r requirements.txt
         print_success "Dependencies installed"
     else
         print_warning "requirements.txt not found, installing basic dependencies"
-        pip install fastapi uvicorn python-multipart
+        "$PYTHON_CMD" -m pip install fastapi uvicorn python-multipart
     fi
 }
 
@@ -223,7 +226,7 @@ create_directories() {
     cd "$AIO_SERVER_DIR"
     
     # Create upload directories
-    for dir_name in ["agent", "mcp", "img", "video"]; do
+    for dir_name in agent mcp img video; do
         mkdir -p "uploads/$dir_name"
     done
     
@@ -237,7 +240,7 @@ start_file_server() {
     cd "$AIO_SERVER_DIR"
     
     # Start file server in background
-    nohup uvicorn server:app \
+    nohup "$PYTHON_CMD" -m uvicorn server:app \
         --host 0.0.0.0 \
         --port $FILE_SERVER_PORT \
         --log-level debug > file_server.log 2>&1 &
@@ -253,10 +256,10 @@ start_exec_server() {
     print_info "Starting exec server on port $EXEC_SERVER_PORT..."
     
     cd "$AIO_SERVER_DIR"
-    
+
     # Check if exec server exists, otherwise use main.py
     if [[ -f "exec_server.py" ]]; then
-        nohup uvicorn exec_server:app \
+        nohup "$PYTHON_CMD" -m uvicorn exec_server:app \
             --host 0.0.0.0 \
             --port $EXEC_SERVER_PORT \
             --log-level debug > exec_server.log 2>&1 &
@@ -267,7 +270,11 @@ start_exec_server() {
         print_success "Exec server started (PID: $EXEC_SERVER_PID)"
     elif [[ -f "main.py" ]]; then
         # Use main.py to start the server on port 8000
-        nohup python3 main.py > exec_server.log 2>&1 &
+        if ! "$PYTHON_CMD" -c "import uvicorn" 2>/dev/null; then
+            print_error "Exec server 启动失败: 项目虚拟环境缺少 uvicorn"
+            return
+        fi
+        nohup env PORT=$EXEC_SERVER_PORT "$PYTHON_CMD" main.py > exec_server.log 2>&1 &
         
         EXEC_SERVER_PID=$!
         echo $EXEC_SERVER_PID > exec_server.pid
@@ -289,40 +296,12 @@ start_chat_router() {
         return
     fi
     
-    # 使用当前已激活的 conda 环境中的 Python（确保有 uvicorn）
-    local python_cmd="python3"
-    if [[ -n "$CONDA_PREFIX" ]]; then
-        python_cmd="$CONDA_PREFIX/bin/python3"
-        if [[ ! -x "$python_cmd" ]]; then
-            python_cmd="python3"
-        fi
-    fi
-    
-    # 启动前检查 uvicorn 是否可用
-    if ! $python_cmd -c "import uvicorn" 2>/dev/null; then
-        print_warning "当前 Python 环境缺少 uvicorn，尝试使用 aiopod 环境..."
-        if [[ -n "$CONDA_PREFIX" ]]; then
-            python_cmd="$CONDA_PREFIX/bin/python3"
-        fi
-        for conda_base in "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/conda" "/opt/conda" "/opt/miniconda3" "/opt/anaconda3"; do
-            if [[ -x "$conda_base/envs/aiopod/bin/python3" ]]; then
-                python_cmd="$conda_base/envs/aiopod/bin/python3"
-                if $python_cmd -c "import uvicorn" 2>/dev/null; then
-                    print_success "使用 aiopod 环境: $python_cmd"
-                    break
-                fi
-            fi
-        done
-    fi
-    
-    if ! $python_cmd -c "import uvicorn" 2>/dev/null; then
-        print_error "Chat Router 启动失败: 未找到已安装 uvicorn 的 Python"
-        print_info "请先执行: conda activate aiopod && pip install -r aio_server/requirements.txt"
-        print_info "或直接在本脚本中已激活 aiopod 的情况下重新运行 ./start_aio_pod.sh"
+    if ! "$PYTHON_CMD" -c "import uvicorn" 2>/dev/null; then
+        print_error "Chat Router 启动失败: 项目虚拟环境缺少 uvicorn"
         return
     fi
     
-    nohup $python_cmd chat_router_server.py > chat_router.log 2>&1 &
+    nohup "$PYTHON_CMD" chat_router_server.py > chat_router.log 2>&1 &
     
     CHAT_ROUTER_PID=$!
     echo $CHAT_ROUTER_PID > chat_router.pid
@@ -374,7 +353,7 @@ wait_for_servers() {
     fi
     
     # Wait for chat router server if it exists
-    if [[ -f "$AIO_SERVER_DIR/chat_router_server.py" ]]; then
+    if legacy_chat_router_enabled && [[ -f "$AIO_SERVER_DIR/chat_router_server.py" ]]; then
         attempt=1
         while [ $attempt -le $max_attempts ]; do
             if curl -s "http://localhost:$CHAT_ROUTER_PORT/health" > /dev/null 2>&1; then
@@ -414,7 +393,7 @@ test_endpoints() {
     fi
     
     # Test chat router server health if it exists
-    if [[ -f "$AIO_SERVER_DIR/chat_router_server.py" ]]; then
+    if legacy_chat_router_enabled && [[ -f "$AIO_SERVER_DIR/chat_router_server.py" ]]; then
         if curl -s "http://localhost:$CHAT_ROUTER_PORT/health" > /dev/null 2>&1; then
             print_success "Chat router server health check passed"
         else
@@ -431,14 +410,17 @@ display_status() {
     echo -e "${BLUE}=== Service Status ===${NC}"
     echo "  File Server:  http://localhost:$FILE_SERVER_PORT"
     echo "  Exec Server:  http://localhost:$EXEC_SERVER_PORT"
-    echo "  Chat Router:  http://localhost:$CHAT_ROUTER_PORT"
     echo "  MCP (nginx):  https://mcp.univoices.club"
-    echo "  Chat (nginx): https://webchat.univoices.club"
+    if legacy_chat_router_enabled; then
+        echo "  Legacy Chat Router: http://localhost:$CHAT_ROUTER_PORT"
+    fi
     echo
     echo -e "${BLUE}=== Log Files ===${NC}"
     echo "  File Server:  $AIO_SERVER_DIR/file_server.log"
     echo "  Exec Server:  $AIO_SERVER_DIR/exec_server.log"
-    echo "  Chat Router:  $AIO_SERVER_DIR/chat_router.log"
+    if legacy_chat_router_enabled; then
+        echo "  Legacy Chat Router: $AIO_SERVER_DIR/chat_router.log"
+    fi
     echo "  Nginx:        /var/log/nginx/access.log, /var/log/nginx/error.log"
     echo
     echo -e "${BLUE}=== API Endpoints (生产域名) ===${NC}"
@@ -446,8 +428,10 @@ display_status() {
     echo "  File Upload:    POST https://mcp.univoices.club/upload/{type}     (type: agent|mcp|img|video, body: multipart file)"
     echo "  File Download:  GET  https://mcp.univoices.club/?type={type}&filename={filename}"
     echo "  MCP Execute:    POST https://mcp.univoices.club/api/v1/rpc/mcp/{filename}  (body: JSON-RPC)"
-    echo "  List Models:    GET  https://webchat.univoices.club/v1/models"
-    echo "  Chat Completions: POST https://webchat.univoices.club/v1/chat/completions"
+    if legacy_chat_router_enabled; then
+        echo "  Legacy List Models: GET  https://webchat.univoices.club/v1/models"
+        echo "  Legacy Chat:        POST https://webchat.univoices.club/v1/chat/completions"
+    fi
     echo
     echo -e "${BLUE}=== Management ===${NC}"
     echo "  Stop:   ./stop_aio_pod.sh"
@@ -481,7 +465,7 @@ check_gateway_config() {
     fi
     
     # Check if Gateway token is configured (without showing the actual token)
-    if [[ -z "$OPENCLAW_GATEWAY_TOKEN" || "$OPENCLAW_GATEWAY_TOKEN" == "sk-lm-gyXsWZIS:opqYGydrY8dwynxrZNT6" ]]; then
+    if [[ -z "$OPENCLAW_GATEWAY_TOKEN" || "$OPENCLAW_GATEWAY_TOKEN" == "your-token-here" || "$OPENCLAW_GATEWAY_TOKEN" == "your-actual-token" ]]; then
         print_warning "  Gateway Token: 使用默认值 (建议配置实际的 Token)"
         config_missing=true
     else
@@ -567,23 +551,31 @@ main() {
     print_info "Workspace: $WORKSPACE_ROOT"
     print_info "File Server Port: $FILE_SERVER_PORT"
     print_info "Exec Server Port: $EXEC_SERVER_PORT"
-    print_info "Chat Router Port: $CHAT_ROUTER_PORT"
+    if legacy_chat_router_enabled; then
+        print_info "Legacy Chat Router Port: $CHAT_ROUTER_PORT"
+    else
+        print_info "Legacy OpenClaw Chat Router: disabled"
+    fi
     echo
     
     load_environment
-    check_gateway_config
+    if legacy_chat_router_enabled; then
+        check_gateway_config
+    fi
     check_ports
     kill_existing_processes
-    setup_conda
+    setup_python_env
     install_dependencies
     create_directories
     start_file_server
     start_exec_server
-    start_chat_router
+    if legacy_chat_router_enabled; then
+        start_chat_router
+    fi
     wait_for_servers
     test_endpoints
     display_status
 }
 
 # Run main function
-main "$@" 
+main "$@"

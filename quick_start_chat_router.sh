@@ -12,6 +12,16 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+if [[ "${ENABLE_LEGACY_CHAT_ROUTER:-false}" != "true" ]]; then
+    echo -e "${YELLOW}Legacy OpenClaw Chat Router is disabled.${NC}"
+    echo "AIO-Pod now serves MCP only; Univoice IM calls AIO-Pod via JSON-RPC."
+    echo "Set ENABLE_LEGACY_CHAT_ROUTER=true only for explicit legacy testing."
+    exit 1
+fi
+
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Chat Router Service - Quick Start${NC}"
 echo -e "${BLUE}========================================${NC}"
@@ -25,12 +35,37 @@ if ! command -v python3 &> /dev/null; then
 fi
 echo -e "${GREEN}✓ Python3 已安装${NC}"
 
+# 与 start_aio_pod.sh 一致：始终使用项目级虚拟环境，不修改 ESP-IDF/base 环境。
+AIO_VENV="${AIO_POD_VENV_DIR:-$SCRIPT_DIR/.venv}"
+PYTHON_CMD="$AIO_VENV/bin/python3"
+
+setup_python_env() {
+    if [[ ! -x "$PYTHON_CMD" ]]; then
+        local bootstrap_python="${AIO_POD_BOOTSTRAP_PYTHON:-}"
+        if [[ -z "$bootstrap_python" ]]; then
+            for candidate in "$HOME/miniconda3/bin/python3" "$HOME/anaconda3/bin/python3" "/opt/homebrew/bin/python3.12" "/usr/local/bin/python3.12" "/usr/bin/python3"; do
+                if [[ -x "$candidate" ]]; then
+                    bootstrap_python="$candidate"
+                    break
+                fi
+            done
+        fi
+        if [[ -z "$bootstrap_python" || ! -x "$bootstrap_python" ]]; then
+            echo -e "${RED}✗ 未找到 Python 3.9-3.12${NC}"
+            exit 1
+        fi
+        "$bootstrap_python" -m venv "$AIO_VENV"
+    fi
+    echo -e "${GREEN}✓ 使用项目虚拟环境: ${PYTHON_CMD}${NC}"
+}
+
 # Step 2: Install Python dependencies
 echo -e "${YELLOW}[2/5] 安装 Python 依赖...${NC}"
-pip3 install -r aio_server/requirements.txt > /dev/null 2>&1 || {
-    echo -e "${RED}✗ 依赖安装失败${NC}"
+setup_python_env
+if ! "$PYTHON_CMD" -m pip install -r aio_server/requirements.txt; then
+    echo -e "${RED}✗ 依赖安装失败（请勿对 Homebrew 系统 Python 使用 pip3 install）${NC}"
     exit 1
-}
+fi
 echo -e "${GREEN}✓ 依赖已安装${NC}"
 
 # Step 3: Check environment configuration
@@ -43,7 +78,7 @@ if [[ ! -f "export_env_local.sh" ]]; then
 # OpenClaw Gateway 配置
 export OPENCLAW_GATEWAY_HOST="127.0.0.1"
 export OPENCLAW_GATEWAY_PORT="18789"
-export OPENCLAW_GATEWAY_TOKEN="sk-lm-gyXsWZIS:opqYGydrY8dwynxrZNT6"
+export OPENCLAW_GATEWAY_TOKEN="your-actual-token"
 export OPENCLAW_DEFAULT_AGENT="main"
 
 # Chat Router 服务配置
@@ -59,7 +94,7 @@ fi
 
 # Step 4: Generate Nginx configuration
 echo -e "${YELLOW}[4/5] 生成 Nginx 配置...${NC}"
-python3 generate_nginx_config.py > /dev/null 2>&1 || {
+"$PYTHON_CMD" generate_nginx_config.py > /dev/null 2>&1 || {
     echo -e "${RED}✗ Nginx 配置生成失败${NC}"
     exit 1
 }
@@ -87,7 +122,7 @@ echo "1. 启动服务："
 echo -e "   ${BLUE}./start_aio_pod.sh${NC}"
 echo
 echo "2. 测试服务："
-echo -e "   ${BLUE}python3 test_chat_router.py${NC}"
+echo -e "   ${BLUE}${PYTHON_CMD} test_chat_router.py${NC}"
 echo -e "   ${YELLOW}测试日志将保存到: ./log/test_chat_router_<时间戳>.log${NC}"
 echo
 echo "3. 部署 Nginx 配置（源站 TLS：与 MCP 一致的 Let's Encrypt 路径，见 nginx_webchat.conf）："

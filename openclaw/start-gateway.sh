@@ -4,12 +4,6 @@
 
 set -euo pipefail
 
-REQUIRED_USER="mixlab"
-if [[ "$(id -un)" != "${REQUIRED_USER}" ]]; then
-  echo "错误：本脚本必须由用户 ${REQUIRED_USER} 执行。当前用户: $(id -un)" >&2
-  echo "示例: su - ${REQUIRED_USER} -c '/home/mixlab/openclaw/start-gateway.sh'" >&2
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPENCLAW_BIN="${HOME}/.npm-global/bin/openclaw"

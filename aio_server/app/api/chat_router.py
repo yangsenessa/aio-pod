@@ -84,13 +84,15 @@ async def options_handler(request: Request, path: str):
 async def health_check(request: Request):
     """健康检查"""
     # 检查 Gateway 是否可用
-    is_healthy = await chat_service.check_gateway_health()
+    health_detail = await chat_service.check_gateway_health_detail()
+    is_healthy = health_detail.get("connected", False)
     
     if is_healthy:
         return JSONResponse(
             content={
                 "status": "healthy",
-                "gateway": "connected"
+                "gateway": "connected",
+                "gateway_detail": health_detail,
             },
             headers=get_cors_headers(request)
         )
@@ -99,7 +101,8 @@ async def health_check(request: Request):
             status_code=503,
             content={
                 "status": "unhealthy",
-                "gateway": "disconnected"
+                "gateway": "disconnected",
+                "gateway_detail": health_detail,
             },
             headers=get_cors_headers(request)
         )

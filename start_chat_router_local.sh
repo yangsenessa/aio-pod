@@ -7,6 +7,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+if [[ "${ENABLE_LEGACY_CHAT_ROUTER:-false}" != "true" ]]; then
+    echo "Legacy OpenClaw Chat Router is disabled."
+    echo "AIO-Pod now serves MCP only; Univoice IM calls AIO-Pod via JSON-RPC."
+    echo "Set ENABLE_LEGACY_CHAT_ROUTER=true only for explicit legacy testing."
+    exit 1
+fi
+
 # 加载环境变量
 if [[ -f "export_env_local.sh" ]]; then
     source export_env_local.sh
