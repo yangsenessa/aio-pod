@@ -60,7 +60,7 @@ async def execute_rpc(
     file_type: FileType = Path(..., description="File type"),
     filename: str = Path(..., description="Filename"),
     rpc_request: Dict[str, Any] = None,
-    timeout: int = Query(300, ge=1, le=300, description="Execution timeout (seconds)"),
+    timeout: int = Query(600, ge=1, le=1800, description="Execution timeout (seconds)"),
     config: Settings = Depends(get_config)
 ):
     """
@@ -198,4 +198,4 @@ async def api_health_check(request: Request):
     return JSONResponse(
         content={"status": "healthy"},
         headers=get_cors_headers(request)
-    ) 
+    )

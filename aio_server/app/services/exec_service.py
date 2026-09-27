@@ -16,6 +16,137 @@ from app.utils.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# PyInstaller one-file executables unpack native dependencies on every start.
+# Starting many copies of the same MCP concurrently can make even a trivial
+# `help` request take minutes. Serialize launches per executable while still
+# allowing different MCPs to run in parallel.
+_EXECUTABLE_LOCKS: Dict[str, asyncio.Lock] = {}
+_HELP_CACHE: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+_STDIO_RUNNERS: Dict[str, "_PersistentStdioRunner"] = {}
+
+
+def _get_executable_lock(filepath: str) -> asyncio.Lock:
+    normalized_path = os.path.realpath(filepath)
+    lock = _EXECUTABLE_LOCKS.get(normalized_path)
+    if lock is None:
+        lock = asyncio.Lock()
+        _EXECUTABLE_LOCKS[normalized_path] = lock
+    return lock
+
+
+class _PersistentStdioRunner:
+    """Keep a line-oriented JSON-RPC executable warm between requests."""
+
+    def __init__(self, filepath: str):
+        self.filepath = os.path.realpath(filepath)
+        self.process: Optional[asyncio.subprocess.Process] = None
+        self.fingerprint: Optional[Tuple[int, int]] = None
+        self.lock = asyncio.Lock()
+        self.stderr_task: Optional[asyncio.Task] = None
+        self.stderr_tail = ""
+
+    def _current_fingerprint(self) -> Tuple[int, int]:
+        stat = os.stat(self.filepath)
+        return stat.st_mtime_ns, stat.st_size
+
+    async def _drain_stderr(self, stream: asyncio.StreamReader) -> None:
+        while True:
+            chunk = await stream.read(4096)
+            if not chunk:
+                return
+            message = chunk.decode("utf-8", errors="replace")
+            self.stderr_tail = (self.stderr_tail + message)[-8192:]
+            logger.debug("MCP stderr: %s", message.rstrip())
+
+    async def _stop(self) -> None:
+        process = self.process
+        self.process = None
+        if process and process.returncode is None:
+            process.kill()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                logger.error("Persistent MCP process did not exit after kill")
+        if self.stderr_task:
+            self.stderr_task.cancel()
+            self.stderr_task = None
+
+    async def _ensure_started(self) -> None:
+        fingerprint = self._current_fingerprint()
+        if (
+            self.process is not None
+            and self.process.returncode is None
+            and self.fingerprint == fingerprint
+        ):
+            return
+
+        await self._stop()
+        self.stderr_tail = ""
+        self.process = await asyncio.create_subprocess_exec(
+            self.filepath,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        self.fingerprint = fingerprint
+        self.stderr_task = asyncio.create_task(self._drain_stderr(self.process.stderr))
+        logger.info("Started persistent MCP stdio process pid=%s", self.process.pid)
+
+    async def _read_json_response(self) -> str:
+        if self.process is None or self.process.stdout is None:
+            raise RuntimeError("MCP process stdout is unavailable")
+        response = ""
+        while True:
+            line = await self.process.stdout.readline()
+            if not line:
+                raise RuntimeError(
+                    "MCP process exited before returning JSON-RPC data"
+                    + (f": {self.stderr_tail}" if self.stderr_tail else "")
+                )
+            response += line.decode("utf-8", errors="replace")
+            try:
+                json.loads(response)
+                return response
+            except json.JSONDecodeError:
+                # PixelMug currently emits pretty-printed, multi-line JSON.
+                # Continue until one complete JSON document has arrived.
+                continue
+
+    async def _request_locked(self, stdin_data: str) -> str:
+        async with self.lock:
+            await self._ensure_started()
+            assert self.process is not None and self.process.stdin is not None
+            try:
+                self.process.stdin.write((stdin_data + "\n").encode("utf-8"))
+                await self.process.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                # A one-shot executable may exit after each response. Restart
+                # it once and retry transparently.
+                await self._stop()
+                await self._ensure_started()
+                assert self.process is not None and self.process.stdin is not None
+                self.process.stdin.write((stdin_data + "\n").encode("utf-8"))
+                await self.process.stdin.drain()
+            return await self._read_json_response()
+
+    async def request(self, stdin_data: str, timeout: int) -> str:
+        try:
+            # Queueing behind an in-flight device operation is part of the
+            # request timeout, preventing an unbounded backlog.
+            return await asyncio.wait_for(self._request_locked(stdin_data), timeout=timeout)
+        except asyncio.TimeoutError:
+            await self._stop()
+            raise
+
+
+def _get_stdio_runner(filepath: str) -> _PersistentStdioRunner:
+    normalized_path = os.path.realpath(filepath)
+    runner = _STDIO_RUNNERS.get(normalized_path)
+    if runner is None:
+        runner = _PersistentStdioRunner(normalized_path)
+        _STDIO_RUNNERS[normalized_path] = runner
+    return runner
+
 class ExecutionService:
     """Executable file execution service class"""
     
@@ -300,6 +431,76 @@ class ExecutionService:
                 success=False,
                 message=f"Execution failed: {str(e)}"
             )
+
+    @staticmethod
+    async def _execute_stdio_direct(
+        filepath: str,
+        stdin_data: str,
+        timeout: int,
+        environment: Optional[Dict[str, str]] = None,
+    ) -> ExecutionResponse:
+        """Execute one stdio request without an intermediate shell.
+
+        Direct execution avoids quoting bugs and, importantly, lets timeout
+        handling terminate the actual MCP process instead of only killing the
+        shell that owns a pipe.
+        """
+        start_time = time.monotonic()
+        env = os.environ.copy()
+        if environment:
+            env.update(environment)
+
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                filepath,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate((stdin_data + "\n").encode("utf-8")),
+                timeout=timeout,
+            )
+            execution_time = time.monotonic() - start_time
+            return ExecutionResponse(
+                success=process.returncode == 0,
+                stdout=stdout.decode("utf-8", errors="replace") if stdout else None,
+                stderr=stderr.decode("utf-8", errors="replace") if stderr else None,
+                exit_code=process.returncode,
+                execution_time=execution_time,
+                message=(
+                    "Execution successful"
+                    if process.returncode == 0
+                    else f"Execution failed, exit code: {process.returncode}"
+                ),
+            )
+        except asyncio.TimeoutError:
+            logger.error("Direct stdio execution timed out after %ss", timeout)
+            if process and process.returncode is None:
+                process.kill()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    logger.error("Timed-out MCP did not exit within 5 seconds after kill")
+            return ExecutionResponse(
+                success=False,
+                exit_code=process.returncode if process else None,
+                execution_time=time.monotonic() - start_time,
+                message=f"Execution timeout (>{timeout} seconds)",
+            )
+        except Exception as exc:
+            logger.exception("Direct stdio execution failed")
+            if process and process.returncode is None:
+                process.kill()
+                await process.wait()
+            return ExecutionResponse(
+                success=False,
+                exit_code=process.returncode if process else None,
+                execution_time=time.monotonic() - start_time,
+                message=f"Execution failed: {exc}",
+            )
     
     @staticmethod
     async def execute_json_rpc(
@@ -367,13 +568,46 @@ class ExecutionService:
                 "id": id
             }
         
-        # Execute executable file with shell piping
-        logger.info(f"Executing file using shell piping for JSON-RPC request: {method}")
-        result = await ExecutionService.execute_file(
-            filepath=filepath,
-            stdin_data=stdin_data,
-            timeout=timeout
-        )
+        try:
+            stat = os.stat(filepath)
+            cache_key = (os.path.realpath(filepath), stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            cache_key = (os.path.realpath(filepath), 0, 0)
+
+        if method == "help" and cache_key in _HELP_CACHE:
+            cached_response = dict(_HELP_CACHE[cache_key])
+            cached_response["id"] = id
+            logger.info("Returning cached help response for %s", filepath)
+            return cached_response
+
+        logger.info("Executing persistent stdio JSON-RPC request: %s", method)
+        # The runner serializes requests for one executable and keeps the
+        # PyInstaller process warm, eliminating repeated one-file extraction.
+        try:
+            stdout = await _get_stdio_runner(filepath).request(stdin_data, timeout)
+            result = ExecutionResponse(
+                success=True,
+                stdout=stdout,
+                exit_code=0,
+                execution_time=0,
+                message="Execution successful",
+            )
+        except asyncio.TimeoutError:
+            result = ExecutionResponse(
+                success=False,
+                exit_code=None,
+                execution_time=timeout,
+                message=f"Execution timeout (>{timeout} seconds)",
+            )
+        except Exception as exc:
+            logger.exception("Persistent stdio JSON-RPC request failed")
+            result = ExecutionResponse(
+                success=False,
+                stderr=str(exc),
+                exit_code=None,
+                execution_time=0,
+                message=f"Execution failed: {exc}",
+            )
         logger.info(f"Execution result - Success status: {result.success}, Exit code: {result.exit_code}")
         
         # For debugging - log response content
@@ -413,6 +647,14 @@ class ExecutionService:
                 sanitized_stdout = ExecutionService._sanitize_json_string_for_logging(result.stdout)
                 logger.info(f"Parsing JSON-RPC response: {sanitized_stdout}")
                 response = json.loads(result.stdout)
+                if method == "help" and "result" in response:
+                    cached_response = dict(response)
+                    cached_response["id"] = None
+                    # Remove cache entries for older versions of this file.
+                    for old_key in list(_HELP_CACHE):
+                        if old_key[0] == cache_key[0] and old_key != cache_key:
+                            _HELP_CACHE.pop(old_key, None)
+                    _HELP_CACHE[cache_key] = cached_response
                 logger.info("JSON-RPC execution completed successfully")
                 return response
             else:
@@ -457,4 +699,4 @@ class ExecutionService:
                     }
                 },
                 "id": id
-            } 
+            }

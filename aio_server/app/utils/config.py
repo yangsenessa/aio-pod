@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 from functools import lru_cache
 from typing import List
 from pydantic import Field
@@ -10,7 +11,7 @@ class Settings(BaseSettings):
     api_version: str = Field("v1", env="API_VERSION")
     log_level: str = Field("info", env="LOG_LEVEL")
     agent_exec_dir: str = Field("uploads/agent", env="AGENT_EXEC_DIR")
-    mcp_exec_dir: str = Field("uploads/mcp", env="MCP_EXEC_DIR")
+    mcp_exec_dir: str = ""
     database_url: str = Field("sqlite:///./aio_server.db", env="DATABASE_URL")
     allowed_origins: List[str] = Field(["*"], env="ALLOWED_ORIGINS")
     host: str = Field("0.0.0.0", env="HOST")
@@ -24,7 +25,9 @@ class Settings(BaseSettings):
         super().__init__(**data)
         # Ensure paths are absolute
         self.agent_exec_dir = os.path.abspath(self.agent_exec_dir)
-        self.mcp_exec_dir = os.path.abspath(self.mcp_exec_dir)
+        # MCP executables have one canonical location. Do not derive this from
+        # the process working directory or an environment override.
+        self.mcp_exec_dir = str(Path(__file__).resolve().parents[2] / "uploads" / "mcp")
         
         # Parse ALLOWED_ORIGINS (if it's a JSON string)
         if isinstance(self.allowed_origins, str):
@@ -36,4 +39,4 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     """Get application configuration singleton"""
-    return Settings() 
+    return Settings()

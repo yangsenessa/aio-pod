@@ -169,7 +169,7 @@ def create_app() -> FastAPI:
         try:
             # Create upload directories if they don't exist
             os.makedirs("uploads/agent", exist_ok=True)
-            os.makedirs("uploads/mcp", exist_ok=True)
+            os.makedirs(settings.mcp_exec_dir, exist_ok=True)
             
             # Check if we can write to upload directories
             try:
@@ -178,7 +178,7 @@ def create_app() -> FastAPI:
                     f.write("test")
                 os.remove(test_file)
                 
-                test_file = "uploads/mcp/.test"
+                test_file = os.path.join(settings.mcp_exec_dir, ".test")
                 with open(test_file, "w") as f:
                     f.write("test")
                 os.remove(test_file)
@@ -293,4 +293,4 @@ if __name__ == "__main__":
         use_https=args.https,
         cert_file=args.cert,
         key_file=args.key
-    ) 
+    )
